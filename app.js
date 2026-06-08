@@ -483,3 +483,23 @@ function showToast(msg) {
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 3500);
 }
+
+// ── Auto-load embedded data on startup ─────────────────────────────────────
+// Looks for a "datos.csv" or "datos.xlsx" file next to index.html and loads it
+// automatically so the dashboard shows historical data without an upload.
+async function autoLoad() {
+  for (const name of ['datos.csv', 'datos.xlsx']) {
+    try {
+      const res = await fetch(name, { cache: 'no-store' });
+      if (!res.ok) continue;
+      const buf = await res.arrayBuffer();
+      const wb  = XLSX.read(buf, { type: 'array', cellDates: true });
+      const ws  = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      if (json.length) { processData(json, name); return true; }
+    } catch (_) { /* file not present — fall through to upload screen */ }
+  }
+  return false;
+}
+
+autoLoad();
