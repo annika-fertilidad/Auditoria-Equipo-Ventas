@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Auditoría Equipo de Ventas</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header>
+    <div class="header-inner">
+      <div class="header-logo">
+        <div class="logo-icon">AV</div>
+        <div>
+          <div class="header-title">Auditoría Equipo de Ventas</div>
+          <div class="header-sub">Panel de control · WhatsApp Chats</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="btn-primary" onclick="document.getElementById('fileInput').click()">
+          ⬆ Cargar archivo
+        </button>
+        <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleFile(event)" />
+        <button class="btn-ghost" onclick="downloadTemplate()">⬇ Plantilla CSV</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- UPLOAD ZONE (shown when no data) -->
+  <div id="uploadZone" class="upload-zone">
+    <div class="upload-card">
+      <div class="upload-icon">📋</div>
+      <h2>Bienvenido al Panel de Auditoría</h2>
+      <p>Carga un archivo <strong>CSV o Excel</strong> con los resultados de auditoría para comenzar.</p>
+      <button class="btn-primary large" onclick="document.getElementById('fileInput').click()">
+        Seleccionar archivo
+      </button>
+      <button class="btn-ghost" onclick="loadSampleData()" style="margin-top:10px">
+        Ver datos de ejemplo
+      </button>
+      <div class="template-hint">
+        ¿Primera vez? <a href="#" onclick="downloadTemplate(); return false;">Descarga la plantilla CSV</a> para saber qué columnas usar.
+      </div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD (hidden until data loaded) -->
+  <main id="dashboard" style="display:none">
+
+    <!-- FILTER BAR -->
+    <div class="filter-bar">
+      <div class="filter-group">
+        <label>Agente</label>
+        <select id="filterAgent" onchange="applyFilters()">
+          <option value="">Todos</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>Desde</label>
+        <input type="date" id="filterFrom" onchange="applyFilters()" />
+      </div>
+      <div class="filter-group">
+        <label>Hasta</label>
+        <input type="date" id="filterTo" onchange="applyFilters()" />
+      </div>
+      <button class="btn-ghost small" onclick="clearFilters()">Limpiar filtros</button>
+      <span id="recordCount" class="record-count"></span>
+    </div>
+
+    <!-- KPI CARDS -->
+    <div class="kpi-grid" id="kpiGrid"></div>
+
+    <!-- CHARTS ROW -->
+    <div class="charts-row">
+      <div class="chart-card wide">
+        <div class="chart-title">Puntaje total por agente</div>
+        <div class="chart-wrap"><canvas id="chartAgents"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Evolución por fecha</div>
+        <div class="chart-wrap"><canvas id="chartTrend"></canvas></div>
+      </div>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-card">
+        <div class="chart-title">Promedio por categoría</div>
+        <div class="chart-wrap"><canvas id="chartCategories"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Distribución de puntajes</div>
+        <div class="chart-wrap"><canvas id="chartDist"></canvas></div>
+      </div>
+    </div>
+
+    <!-- TABLE -->
+    <div class="table-card">
+      <div class="table-header-row">
+        <div class="chart-title">Registro de auditorías</div>
+        <button class="btn-ghost small" onclick="exportFiltered()">⬇ Exportar vista</button>
+      </div>
+      <div class="table-wrap">
+        <table id="auditTable">
+          <thead id="tableHead"></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- TOAST -->
+  <div id="toast" class="toast"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
