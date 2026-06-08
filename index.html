@@ -17,105 +17,93 @@
         <div class="logo-icon">AV</div>
         <div>
           <div class="header-title">Auditoría Equipo de Ventas</div>
-          <div class="header-sub">Panel de control · WhatsApp Chats</div>
+          <div class="header-sub">Seguimiento semanal · WhatsApp Chats</div>
         </div>
       </div>
       <div class="header-actions">
-        <button class="btn-primary" onclick="document.getElementById('fileInput').click()">
-          ⬆ Cargar archivo
-        </button>
+        <button class="btn-primary" onclick="document.getElementById('fileInput').click()">⬆ Cargar archivo</button>
         <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleFile(event)" />
-        <button class="btn-ghost" onclick="downloadTemplate()">⬇ Plantilla CSV</button>
+        <button class="btn-ghost" onclick="downloadTemplate()">⬇ Plantilla</button>
       </div>
+    </div>
+
+    <!-- TABS (hidden until data loaded) -->
+    <div class="tab-bar" id="tabBar" style="display:none">
+      <button class="tab active" id="tab-cumplimiento" onclick="switchTab('cumplimiento')">📋 Cumplimiento semanal</button>
+      <button class="tab" id="tab-incidencias" onclick="switchTab('incidencias')">⚠️ Incidencias</button>
     </div>
   </header>
 
-  <!-- UPLOAD ZONE (shown when no data) -->
+  <!-- UPLOAD ZONE -->
   <div id="uploadZone" class="upload-zone">
     <div class="upload-card">
       <div class="upload-icon">📋</div>
-      <h2>Bienvenido al Panel de Auditoría</h2>
-      <p>Carga un archivo <strong>CSV o Excel</strong> con los resultados de auditoría para comenzar.</p>
-      <button class="btn-primary large" onclick="document.getElementById('fileInput').click()">
-        Seleccionar archivo
-      </button>
-      <button class="btn-ghost" onclick="loadSampleData()" style="margin-top:10px">
-        Ver datos de ejemplo
-      </button>
+      <h2>Panel de Auditoría de Ventas</h2>
+      <p>Carga un archivo <strong>CSV o Excel</strong> con los resultados de auditoría para ver el resumen semanal por agente.</p>
+      <button class="btn-primary large" onclick="document.getElementById('fileInput').click()">Seleccionar archivo</button>
+      <button class="btn-ghost" onclick="loadSampleData()" style="margin-top:10px">Ver datos de ejemplo</button>
       <div class="template-hint">
-        ¿Primera vez? <a href="#" onclick="downloadTemplate(); return false;">Descarga la plantilla CSV</a> para saber qué columnas usar.
+        ¿Primera vez? <a href="#" onclick="downloadTemplate(); return false;">Descarga la plantilla</a> para saber qué columnas usar.
       </div>
     </div>
   </div>
 
-  <!-- DASHBOARD (hidden until data loaded) -->
+  <!-- DASHBOARD -->
   <main id="dashboard" style="display:none">
 
     <!-- FILTER BAR -->
     <div class="filter-bar">
       <div class="filter-group">
+        <label>Semana</label>
+        <select id="filterWeek" onchange="applyFilters()"><option value="">Todas</option></select>
+      </div>
+      <div class="filter-group">
         <label>Agente</label>
-        <select id="filterAgent" onchange="applyFilters()">
-          <option value="">Todos</option>
-        </select>
+        <select id="filterAgent" onchange="applyFilters()"><option value="">Todos</option></select>
       </div>
-      <div class="filter-group">
-        <label>Desde</label>
-        <input type="date" id="filterFrom" onchange="applyFilters()" />
-      </div>
-      <div class="filter-group">
-        <label>Hasta</label>
-        <input type="date" id="filterTo" onchange="applyFilters()" />
-      </div>
-      <button class="btn-ghost small" onclick="clearFilters()">Limpiar filtros</button>
+      <button class="btn-ghost small" onclick="clearFilters()">Limpiar</button>
       <span id="recordCount" class="record-count"></span>
     </div>
 
-    <!-- KPI CARDS -->
-    <div class="kpi-grid" id="kpiGrid"></div>
+    <!-- ── TAB: CUMPLIMIENTO ── -->
+    <div id="panelCumplimiento">
 
-    <!-- CHARTS ROW -->
-    <div class="charts-row">
-      <div class="chart-card wide">
-        <div class="chart-title">Puntaje total por agente</div>
-        <div class="chart-wrap"><canvas id="chartAgents"></canvas></div>
-      </div>
-      <div class="chart-card">
-        <div class="chart-title">Evolución por fecha</div>
-        <div class="chart-wrap"><canvas id="chartTrend"></canvas></div>
+      <!-- KPI row -->
+      <div class="kpi-grid" id="kpiGrid"></div>
+
+      <!-- Agent cards -->
+      <div class="section-title">Resumen por agente</div>
+      <div class="agent-grid" id="agentGrid"></div>
+
+      <!-- Most missed criteria -->
+      <div class="two-col">
+        <div class="chart-card">
+          <div class="chart-title">Criterios más incumplidos</div>
+          <div class="chart-wrap tall"><canvas id="chartCriteria"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Cumplimiento general por semana</div>
+          <div class="chart-wrap tall"><canvas id="chartTrend"></canvas></div>
+        </div>
       </div>
     </div>
 
-    <div class="charts-row">
-      <div class="chart-card">
-        <div class="chart-title">Promedio por categoría</div>
-        <div class="chart-wrap"><canvas id="chartCategories"></canvas></div>
-      </div>
-      <div class="chart-card">
-        <div class="chart-title">Distribución de puntajes</div>
-        <div class="chart-wrap"><canvas id="chartDist"></canvas></div>
-      </div>
-    </div>
+    <!-- ── TAB: INCIDENCIAS ── -->
+    <div id="panelIncidencias" style="display:none">
 
-    <!-- TABLE -->
-    <div class="table-card">
-      <div class="table-header-row">
-        <div class="chart-title">Registro de auditorías</div>
-        <button class="btn-ghost small" onclick="exportFiltered()">⬇ Exportar vista</button>
-      </div>
-      <div class="table-wrap">
-        <table id="auditTable">
-          <thead id="tableHead"></thead>
-          <tbody id="tableBody"></tbody>
-        </table>
-      </div>
+      <!-- Incident summary cards -->
+      <div class="section-title">Resumen de incidencias</div>
+      <div class="incident-summary" id="incidentSummary"></div>
+
+      <!-- Per-agent incident table -->
+      <div class="section-title" style="margin-top:24px">Detalle por agente</div>
+      <div id="agentIncidents"></div>
+
     </div>
 
   </main>
 
-  <!-- TOAST -->
   <div id="toast" class="toast"></div>
-
   <script src="app.js"></script>
 </body>
 </html>
