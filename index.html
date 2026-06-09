@@ -51,6 +51,55 @@
 
     <!-- TAB: SCORECARD -->
     <div id="panel-scorecard">
+
+      <!-- GUÍA DE LOS 5 PILARES -->
+      <details class="pillar-guide" open>
+        <summary>
+          <span>¿Cómo se mide el desempeño? Los 5 pilares del PXI</span>
+          <span class="guide-toggle">Mostrar / ocultar</span>
+        </summary>
+        <p class="guide-intro">El <strong>PXI</strong> (Índice de Experiencia del Paciente) es una calificación de 0 a 100 por agente. Se arma con estos 5 pilares, evaluados automáticamente leyendo el texto de cada chat. Cada pilar se revisa solo cuando aplica.</p>
+        <div class="guide-grid">
+
+          <div class="guide-card" style="--pc:#4A7B9D">
+            <div class="guide-head"><span class="guide-code">P1</span><span class="guide-name">Velocidad</span><span class="guide-weight">20%</span></div>
+            <div class="guide-row"><b>Qué mide:</b> Qué tan rápido respondió el agente al primer mensaje del paciente.</div>
+            <div class="guide-row"><b>Cómo se mide:</b> Tiempo entre el primer mensaje del paciente y la primera respuesta humana.</div>
+            <div class="guide-row"><b>Cumple si:</b> respondió en <b>15 minutos o menos</b>.</div>
+          </div>
+
+          <div class="guide-card" style="--pc:#738D84">
+            <div class="guide-head"><span class="guide-code">P2</span><span class="guide-name">Atención plena</span><span class="guide-weight">25%</span></div>
+            <div class="guide-row"><b>Qué mide:</b> Que no se deje al paciente esperando, sin cerrar el ciclo.</div>
+            <div class="guide-row"><b>Cómo se mide:</b> Se revisa quién habló al final y si esa última pregunta del paciente quedó sin respuesta.</div>
+            <div class="guide-row"><b>Cumple si:</b> el agente <b>no dejó preguntas del paciente sin contestar</b>.</div>
+          </div>
+
+          <div class="guide-card" style="--pc:#C9A24B">
+            <div class="guide-head"><span class="guide-code">P3</span><span class="guide-name">Valor antes de precio</span><span class="guide-weight">15%</span></div>
+            <div class="guide-row"><b>Qué mide:</b> Que el precio se dé acompañado del valor del servicio, no solo un número.</div>
+            <div class="guide-row"><b>Cómo se mide:</b> Cuando el agente menciona un precio, se busca contexto del servicio (qué incluye, evaluación, plan…) antes, en ese mensaje o justo después.</div>
+            <div class="guide-row"><b>Cumple si:</b> el precio viene <b>con información del servicio</b>, no “a secas”.</div>
+          </div>
+
+          <div class="guide-card" style="--pc:#C0574A">
+            <div class="guide-head"><span class="guide-code">P4</span><span class="guide-name">Lenguaje seguro</span><span class="guide-weight">25%</span></div>
+            <div class="guide-row"><b>Qué mide:</b> Que el agente no use promesas clínicas ni vocabulario prohibido o que minimice.</div>
+            <div class="guide-row"><b>Cómo se mide:</b> Se buscan frases de riesgo (tasas de éxito, garantías, diagnósticos) y palabras prohibidas del manual.</div>
+            <div class="guide-row"><b>Cumple si:</b> <b>no aparece ninguna</b> de esas frases o palabras.</div>
+          </div>
+
+          <div class="guide-card" style="--pc:#6B9E6E">
+            <div class="guide-head"><span class="guide-code">P5</span><span class="guide-name">Sensibilidad emocional</span><span class="guide-weight">15%</span></div>
+            <div class="guide-row"><b>Qué mide:</b> Que ante carga emocional o frustración, el agente valide antes de seguir.</div>
+            <div class="guide-row"><b>Cómo se mide:</b> Aplica solo cuando el paciente expresa emoción/molestia; se busca una frase de validación (“te entiendo”, “lamento…”).</div>
+            <div class="guide-row"><b>Cumple si:</b> el agente <b>reconoció la emoción</b> antes de pasar a información.</div>
+          </div>
+
+        </div>
+        <p class="guide-foot">El <strong>PXI</strong> es el promedio ponderado de los pilares que aplicaron (re-normalizado). Códigos de color: <span class="legend ok">verde ≥ 80</span> <span class="legend warn">amarillo 60–79</span> <span class="legend bad">rojo &lt; 60</span> · <span class="legend na">N/A = no aplicó</span></p>
+      </details>
+
       <div class="section-title">Scorecard por agente</div>
       <div class="scorecard-grid" id="scorecardGrid"></div>
       <div id="lowVolume"></div>
