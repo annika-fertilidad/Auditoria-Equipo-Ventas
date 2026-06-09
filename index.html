@@ -3,104 +3,93 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Auditoría Equipo de Ventas</title>
+  <title>Índice de Experiencia del Paciente (PXI)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-  <!-- HEADER -->
   <header>
     <div class="header-inner">
       <div class="header-logo">
-        <div class="logo-icon">AV</div>
+        <div class="logo-icon">FI</div>
         <div>
-          <div class="header-title">Auditoría Equipo de Ventas</div>
-          <div class="header-sub">Seguimiento semanal · WhatsApp Chats</div>
+          <div class="header-title">Índice de Experiencia del Paciente</div>
+          <div class="header-sub">Auditoría de conversaciones · WhatsApp / Atom</div>
         </div>
       </div>
       <div class="header-actions">
-        <button class="btn-primary" onclick="document.getElementById('fileInput').click()">⬆ Cargar archivo</button>
+        <button class="btn-primary" onclick="document.getElementById('fileInput').click()">Cargar export</button>
         <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none" onchange="handleFile(event)" />
-        <button class="btn-ghost" onclick="downloadTemplate()">⬇ Plantilla</button>
+        <button class="btn-secondary" onclick="downloadTemplate()">Plantilla</button>
       </div>
     </div>
-
-    <!-- TABS (hidden until data loaded) -->
     <div class="tab-bar" id="tabBar" style="display:none">
-      <button class="tab active" id="tab-cumplimiento" onclick="switchTab('cumplimiento')">📋 Cumplimiento semanal</button>
-      <button class="tab" id="tab-incidencias" onclick="switchTab('incidencias')">⚠️ Incidencias</button>
+      <button class="tab active" id="tab-scorecard" onclick="switchTab('scorecard')">Scorecard PXI</button>
+      <button class="tab" id="tab-flags" onclick="switchTab('flags')">Intervención inmediata</button>
+      <button class="tab" id="tab-sampling" onclick="switchTab('sampling')">Muestreo manual</button>
     </div>
   </header>
 
-  <!-- UPLOAD ZONE -->
   <div id="uploadZone" class="upload-zone">
-    <div class="upload-card">
-      <div class="upload-icon">📋</div>
-      <h2>Panel de Auditoría de Ventas</h2>
-      <p>Carga un archivo <strong>CSV o Excel</strong> con los resultados de auditoría para ver el resumen semanal por agente.</p>
+    <div class="upload-card fi-card">
+      <span class="fi-tag">Fertilidad Integral</span>
+      <h2>Índice de Experiencia del Paciente (PXI)</h2>
+      <p>Carga el export nocturno de Atom (<strong>.xlsx</strong>, hoja <em>Historial</em>) para calcular el PXI por agente: 5 pilares auto-evaluados, alertas de intervención y lista de muestreo manual.</p>
       <button class="btn-primary large" onclick="document.getElementById('fileInput').click()">Seleccionar archivo</button>
-      <button class="btn-ghost" onclick="loadSampleData()" style="margin-top:10px">Ver datos de ejemplo</button>
-      <div class="template-hint">
-        ¿Primera vez? <a href="#" onclick="downloadTemplate(); return false;">Descarga la plantilla</a> para saber qué columnas usar.
-      </div>
+      <button class="btn-secondary" onclick="loadSampleData()" style="margin-top:12px">Ver datos de ejemplo</button>
     </div>
   </div>
 
-  <!-- DASHBOARD -->
   <main id="dashboard" style="display:none">
 
-    <!-- FILTER BAR -->
-    <div class="filter-bar">
-      <div class="filter-group">
-        <label>Semana</label>
-        <select id="filterWeek" onchange="applyFilters()"><option value="">Todas</option></select>
+    <!-- KPIs -->
+    <div class="kpi-grid" id="kpiGrid"></div>
+
+    <!-- TAB: SCORECARD -->
+    <div id="panel-scorecard">
+      <div class="section-title">Scorecard por agente</div>
+      <div class="scorecard-grid" id="scorecardGrid"></div>
+      <div id="lowVolume"></div>
+
+      <div class="charts-row">
+        <div class="fi-card chart-card"><div class="chart-title">PXI por agente</div><div class="chart-wrap"><canvas id="chartPxi"></canvas></div></div>
+        <div class="fi-card chart-card"><div class="chart-title">SLA ≤15 min por agente</div><div class="chart-wrap"><canvas id="chartSla"></canvas></div></div>
       </div>
-      <div class="filter-group">
-        <label>Agente</label>
-        <select id="filterAgent" onchange="applyFilters()"><option value="">Todos</option></select>
-      </div>
-      <button class="btn-ghost small" onclick="clearFilters()">Limpiar</button>
-      <span id="recordCount" class="record-count"></span>
-    </div>
-
-    <!-- ── TAB: CUMPLIMIENTO ── -->
-    <div id="panelCumplimiento">
-
-      <!-- KPI row -->
-      <div class="kpi-grid" id="kpiGrid"></div>
-
-      <!-- Agent cards -->
-      <div class="section-title">Resumen por agente</div>
-      <div class="agent-grid" id="agentGrid"></div>
-
-      <!-- Most missed criteria -->
-      <div class="two-col">
-        <div class="chart-card">
-          <div class="chart-title">Criterios más incumplidos</div>
-          <div class="chart-wrap tall"><canvas id="chartCriteria"></canvas></div>
-        </div>
-        <div class="chart-card">
-          <div class="chart-title">Cumplimiento general por semana</div>
-          <div class="chart-wrap tall"><canvas id="chartTrend"></canvas></div>
-        </div>
+      <div class="charts-row one">
+        <div class="fi-card chart-card"><div class="chart-title">Desglose por pilar — ¿qué pilar arrastra a cada agente?</div><div class="chart-wrap tall"><canvas id="chartPillars"></canvas></div></div>
       </div>
     </div>
 
-    <!-- ── TAB: INCIDENCIAS ── -->
-    <div id="panelIncidencias" style="display:none">
-
-      <!-- Incident summary cards -->
-      <div class="section-title">Resumen de incidencias</div>
-      <div class="incident-summary" id="incidentSummary"></div>
-
-      <!-- Per-agent incident table -->
-      <div class="section-title" style="margin-top:24px">Detalle por agente</div>
-      <div id="agentIncidents"></div>
-
+    <!-- TAB: FLAGS -->
+    <div id="panel-flags" style="display:none">
+      <div class="section-title">Cola de intervención inmediata <span id="flagCount" class="count-pill"></span></div>
+      <div class="flag-filters">
+        <select onchange="setFlagAgent(this.value)" id="flagAgent"><option value="">Todos los agentes</option></select>
+        <select onchange="setFlagType(this.value)" id="flagType">
+          <option value="">Todas las alertas</option>
+          <option value="r1">R1 · Frustración no validada</option>
+          <option value="r2">R2 · Info clínica sin confirmación</option>
+          <option value="r3">R3 · Alto valor sin supervisor</option>
+          <option value="r4">R4 · Lead >24h sin respuesta</option>
+        </select>
+      </div>
+      <div id="flagQueue" class="flag-queue"></div>
     </div>
 
+    <!-- TAB: SAMPLING -->
+    <div id="panel-sampling" style="display:none">
+      <div class="section-title">Muestreo manual del supervisor</div>
+      <p class="section-note">El export es solo texto: estos puntos NO se auto-evalúan. El supervisor revisa ~3 chats por agente a la semana y marca lo que corresponda. Tus marcas se guardan en este navegador.</p>
+      <div class="sampling-grid" id="samplingGrid"></div>
+    </div>
+
+    <footer class="dash-footer">
+      <strong>Limitación:</strong> el export de Atom es solo texto. Precios, paquetes e información enviados como imágenes o PDF no aparecen en el contenido, por lo que solo se auto-evalúa lo verificable por texto. Los puntos del muestreo manual no se califican automáticamente.
+    </footer>
   </main>
 
   <div id="toast" class="toast"></div>

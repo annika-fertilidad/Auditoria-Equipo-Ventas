@@ -1,64 +1,59 @@
-# Auditoría Equipo de Ventas
+# Índice de Experiencia del Paciente (PXI)
 
-Panel de control para auditorías semanales de chats de WhatsApp del equipo de ventas.
+Dashboard de auditoría de conversaciones de ventas (WhatsApp / Atom) para Fertilidad Integral.
+Calcula un **PXI por agente** a partir de 5 pilares auto-evaluados + 4 alertas de intervención
+inmediata + una lista de muestreo manual para el supervisor.
 
 ## ¿Cómo funciona?
 
-El panel carga automáticamente el archivo **`datos.csv`** que vive en este repositorio.
-Cuando abres el enlace del dashboard, ves de inmediato todo el histórico — sin tener
-que subir nada.
+El panel carga automáticamente el archivo **`datos.xlsx`** o **`datos.csv`** del repositorio
+(export nocturno de Atom, hoja `Historial`). Al abrir el enlace ves todo de inmediato — sin subir nada.
 
-- **Pestaña "Cumplimiento semanal"** — cumplimiento por agente, criterios más fallidos
-  y evolución por semana.
-- **Pestaña "Incidencias"** — qué incidencias ocurrieron, cuántas y en qué chats.
-- **Filtro por semana y por agente** en la parte superior.
+- **Scorecard PXI** — PXI por agente, los 5 pilares, SLA, mediana de respuesta y citas. Más gráficas.
+- **Intervención inmediata** — cola de alertas R1–R4 con enlace directo a Atom, filtrable.
+- **Muestreo manual** — checklist que el supervisor llena sobre ~3 chats por agente (se guarda en el navegador).
 
-## Cómo actualizar los datos (sin saber programar)
+## Los 5 pilares (auto-evaluados)
 
-1. Abre la **plantilla** desde el botón ⬇ Plantilla del dashboard y llénala con las
-   auditorías nuevas (o agrégalas a tu archivo existente).
-2. Guarda/exporta tu archivo como **`datos.csv`** (mismo nombre exacto).
-3. En GitHub, entra a este repositorio y haz clic en **Add file → Upload files**.
-4. Arrastra tu nuevo `datos.csv`, marca **"Commit changes"** y listo.
-5. En ~1 minuto el dashboard mostrará los datos actualizados.
+| Pilar | Peso | Aplica cuando |
+|---|---|---|
+| P1 · Velocidad | 20% | Hay primer mensaje entrante + respuesta humana dentro de 2 días |
+| P2 · Atención plena | 25% | Siempre (falla si el paciente quedó esperando respuesta) |
+| P3 · Valor antes de precio | 15% | El agente menciona un precio |
+| P4 · Lenguaje seguro | 25% | Siempre |
+| P5 · Sensibilidad emocional | 15% | El paciente expresó carga emocional o frustración |
 
-> El botón **⬆ Cargar archivo** sigue disponible para revisar un archivo en tu
-> computadora sin subirlo a GitHub.
+**PXI** = promedio ponderado de los pilares aplicables (re-normalizado). Agentes con <3
+conversaciones quedan fuera del ranking.
 
-## Columnas del archivo `datos.csv`
+## Alertas de intervención (R1–R4, no entran al PXI)
 
-| Columna | Valores |
-|---|---|
-| Fecha | Fecha de la auditoría (AAAA-MM-DD) |
-| Agente | Nombre del agente |
-| Chat_ID | Identificador del chat (ej. Chat_001) |
-| C1_Nombre … C8_InfoMedica | `Sí` / `No` |
-| C9_Emocion, C10_EVRAG | `Sí` / `No` / `N/A` (N/A cuando no hubo situación emocional) |
-| I1_PrecioSinValor … I8_NoDocumentoHubSpot | `Sí` (ocurrió la incidencia) / `No` |
+- **R1** Frustración no validada
+- **R2** Información clínica sin confirmación del equipo médico
+- **R3** Cotización de tratamiento de alto valor (FIV/PGT/ovodonación) sin involucrar supervisora
+- **R4** Lead interesado >24h sin respuesta
 
-**Criterios (C):**
-1. Usó el nombre del paciente desde el primer mensaje
-2. Hizo al menos 2 preguntas abiertas (SPIN) antes de dar información
-3. Presentó el valor antes del precio (Trío del Valor)
-4. La conversación terminó con un siguiente paso concreto y fechado
-5. Respondió dentro de los 2 minutos establecidos
-6. Documentó correctamente en HubSpot
-7. Aplicó el protocolo de objeciones (Reconocer→Validar→Informar→Invitar)
-8. Evitó dar información médica sin confirmación del equipo clínico
-9. Reconoció la emoción del paciente antes de pasar a información
-10. Aplicó el protocolo EVRA+G en caso de frustración
+## Muestreo manual (no se califica automáticamente)
 
-**Incidencias (I):**
-1. Presentó el precio sin presentar valor primero
-2. Lead con interés real >24 hs sin respuesta
-3. Usó la plantilla genérica sin personalización
-4. Frustración del paciente no validada emocionalmente
-5. Cotizó tratamiento de alto valor sin involucrar a la supervisora
-6. Cerró el deal como perdido antes de los 2 intentos
-7. Dio información clínica sin confirmación del equipo médico
-8. No documentó la conversación en HubSpot
+El export es **solo texto** — precios, paquetes e info en imágenes/PDF no aparecen. Por eso estos
+puntos los revisa el supervisor a mano: uso real del nombre, profundidad SPIN, protocolo de
+objeciones, siguiente paso fechado, documentación en HubSpot.
+
+## Cómo actualizar los datos (sin programar)
+
+1. Exporta de Atom el archivo nocturno (`.xlsx`, hoja `Historial`).
+2. Renómbralo a **`datos.xlsx`** (nombre exacto).
+3. En GitHub: **Add file → Upload files**, arrastra el archivo, **Commit changes**.
+4. En ~1 minuto el dashboard se actualiza.
+
+> El botón **Cargar export** permite revisar un archivo local sin subirlo a GitHub.
+
+## Columnas esperadas (hoja `Historial`)
+
+`num_conversacion, cliente_csv, contacto, fecha_inicio_gestion, canal, agente, tipificacion,
+es_venta, tipo, direccion, remitente, contenido, hora, url`
 
 ## Publicar en GitHub Pages
 
-1. Ve a **Settings → Pages → Source → main branch / root**.
-2. El panel quedará disponible en `https://annika-fertilidad.github.io/Auditoria-Equipo-Ventas`.
+**Settings → Pages → Source → main / root**. Quedará en
+`https://annika-fertilidad.github.io/Auditoria-Equipo-Ventas`.

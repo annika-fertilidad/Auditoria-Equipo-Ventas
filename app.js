@@ -1,35 +1,65 @@
-/* ── Auditoría Equipo de Ventas · app.js ── */
+/* ── Patient Experience Index (PXI) · Scoring engine + dashboard ── */
 
-// ── Criteria definitions ───────────────────────────────────────────────────
-const CRITERIA = [
-  { key: 'c1', col: 'C1_Nombre',        label: '¿Usó el nombre del paciente desde el primer mensaje?' },
-  { key: 'c2', col: 'C2_SPIN',          label: '¿Hizo al menos 2 preguntas abiertas (SPIN) antes de dar información?' },
-  { key: 'c3', col: 'C3_Valor',         label: '¿Presentó el valor antes del precio (Trío del Valor)?' },
-  { key: 'c4', col: 'C4_SiguientePaso', label: '¿La conversación terminó con un siguiente paso concreto y fechado?' },
-  { key: 'c5', col: 'C5_Respuesta2min', label: '¿Respondió dentro de los 2 minutos establecidos?' },
-  { key: 'c6', col: 'C6_HubSpot',       label: '¿Documentó correctamente en HubSpot?' },
-  { key: 'c7', col: 'C7_Objeciones',    label: '¿Aplicó el protocolo de objeciones (Reconocer→Validar→Informar→Invitar)?' },
-  { key: 'c8', col: 'C8_InfoMedica',    label: '¿Evitó dar información médica sin confirmación del equipo clínico?' },
-  { key: 'c9', col: 'C9_Emocion',       label: 'Si el paciente mostró emoción, ¿la reconoció antes de pasar a información?', optional: true },
-  { key: 'c10', col: 'C10_EVRAG',       label: '¿Aplicó el protocolo EVRA+G en caso de frustración o molestia?', optional: true },
-];
+// ── Config ──────────────────────────────────────────────────────────────────
+const WEIGHTS = { p1: 20, p2: 25, p3: 15, p4: 25, p5: 15 };
 
-const INCIDENTS = [
-  { key: 'i1', col: 'I1_PrecioSinValor',      label: 'Presentó el precio sin presentar valor primero' },
-  { key: 'i2', col: 'I2_Lead24h',             label: 'Lead con interés real lleva más de 24 hs sin respuesta' },
-  { key: 'i3', col: 'I3_PlantillaGenerica',   label: 'Se usó la plantilla genérica completa sin personalización' },
-  { key: 'i4', col: 'I4_FrustracionNoValidada', label: 'El paciente expresó frustración y no fue validado emocionalmente' },
-  { key: 'i5', col: 'I5_AltoValorSinSupervisora', label: 'Se cotizó FIV/PGT u otro tratamiento de alto valor sin involucrar a la supervisora' },
-  { key: 'i6', col: 'I6_DealPerdidoPronto',   label: 'Cerró el deal como perdido antes de los 2 intentos establecidos' },
-  { key: 'i7', col: 'I7_InfoClinicaSinMedico', label: 'Se dio información clínica sin confirmación del equipo médico' },
-  { key: 'i8', col: 'I8_NoDocumentoHubSpot',  label: 'No documentó la conversación en HubSpot al cierre del día' },
-];
+const BOTS = ['fi bot','atom','api','agendamiento - instagram','agendamiento - facebook'];
+
+const TOK = {
+  request: ['precio','costo','cuanto','como','cuando','donde','cual','puedo','pueden','podria',
+    'informacion','info','agendar','cita','quiero','necesito','me interesa','estoy interesad',
+    'disponib','horario','direccion','mandame','enviame','me puedes','una pregunta','una duda','sirve','aplica'],
+  closer: ['gracias','ok','vale','perfecto','listo','igualmente','bendiciones','de nada','claro','excelente'],
+  value: ['consulta','evaluacion','valoracion','diagnostico','plan','incluye','especialista','estudio',
+    'paquete','programa','ultrasonido','antimulleriana','reserva ovarica','inseminacion','in vitro','fiv',
+    'congelamiento','ovodonacion','espermatobioscopia','fragmentacion','tratamiento','hormona','laboratorio',
+    'perfil','check','revision','pgt','dgp','prueba','embrion','criopreserv','biopsia','muestra','analisis',
+    'seleccion','sesion','servicio','contiene','consiste','abarca','comprende','contempla'],
+  clinical: ['tasa de exito','% de exito','porcentaje de exito','probabilidad de embarazo','vas a lograr',
+    'vas a quedar embarazada','te garantizo','garantizamos el embarazo','eres buen candidat','eres buena candidat',
+    'tu diagnostico es'],
+  prohibited: ['relajate','no te estreses','todavia eres joven','al menos puedes','todo pasa por algo',
+    'muchas personas pasan por esto','infertil','ciclo fallido','fallo el ciclo','embarazo geriatrico',
+    'todo va a estar bien','todos los casos tienen solucion','es una inversion en su futuro',
+    'es una inversion en tu futuro','cada mes cuenta','a su edad no puede esperar','a tu edad no puede esperar',
+    'si no actua ahora','madre de alquiler','vientre de alquiler'],
+  emotion: ['anos intentando','anos buscando','llevamos anos','perdida gestacional','aborto','perdi a mi bebe',
+    'perdi el embarazo','desesper','no he podido embaraz','no hemos podido embaraz','no puedo quedar embaraz',
+    'me siento triste','muy frustrad','estoy agotada','cansados de','mucha angustia'],
+  frustration: ['muy molesta','muy molesto','estoy molesta','estoy molesto','enojad','indignad','pesimo servicio',
+    'mal servicio','nadie me ha','llevo esperando','sigo esperando','no me han contestado','no me han respondido',
+    'pesima atencion','inaceptable','decepcion'],
+  validation: ['entiendo','comprendo','es valid','por supuesto','sin compromiso','te entiendo','lo siento',
+    'siento mucho','lamento','una disculpa','que valiente','estamos contigo','estamos aqui','aqui estamos'],
+  highValue: ['fiv','in vitro','pgt','dgp','ovodonacion'],
+};
+
+const PILLAR_LABELS = {
+  p1: 'P1 · Velocidad', p2: 'P2 · Atención plena', p3: 'P3 · Valor antes de precio',
+  p4: 'P4 · Lenguaje seguro', p5: 'P5 · Sensibilidad emocional',
+};
 
 // ── State ──────────────────────────────────────────────────────────────────
-let allRows = [];
-let filtered = [];
-let charts = {};
-let activeTab = 'cumplimiento';
+let conversations = [];
+let agentStats = [];
+let clinic = {};
+let activeTab = 'scorecard';
+let flagFilterAgent = '', flagFilterType = '';
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+const hasAny = (text, tokens) => tokens.some(t => text.includes(t));
+const isBot = remitente => BOTS.includes(norm(remitente).trim());
+
+function parseHora(h) {
+  // "DD/MM/YYYY a las HH:MM am/pm"
+  const m = String(h || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4}).*?(\d{1,2}):(\d{2})\s*(am|pm)?/i);
+  if (!m) return null;
+  let [_, d, mo, y, hh, mm, ap] = m;
+  hh = +hh; mm = +mm;
+  if (ap) { ap = ap.toLowerCase(); if (ap === 'pm' && hh < 12) hh += 12; if (ap === 'am' && hh === 12) hh = 0; }
+  return new Date(+y, +mo - 1, +d, hh, mm).getTime();
+}
 
 // ── File handling ──────────────────────────────────────────────────────────
 function handleFile(evt) {
@@ -38,468 +68,487 @@ function handleFile(evt) {
   const reader = new FileReader();
   reader.onload = e => {
     try {
-      const wb = XLSX.read(e.target.result, { type: 'array', cellDates: true });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
-      processData(json, file.name);
-    } catch (err) {
-      showToast('Error al leer el archivo: ' + err.message);
-    }
+      const wb = XLSX.read(e.target.result, { type: 'array', cellDates: false });
+      ingestWorkbook(wb, file.name);
+    } catch (err) { showToast('Error al leer el archivo: ' + err.message); }
   };
   reader.readAsArrayBuffer(file);
   evt.target.value = '';
 }
 
-function loadSampleData() {
-  processData(generateSampleData(), 'datos_ejemplo');
-}
-
-// ── Process data ───────────────────────────────────────────────────────────
-function processData(rows, filename) {
+function ingestWorkbook(wb, filename) {
+  const sheetName = wb.SheetNames.find(n => norm(n) === 'historial') || wb.SheetNames[0];
+  const ws = wb.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
   if (!rows.length) { showToast('El archivo está vacío.'); return; }
-
-  const headers = Object.keys(rows[0]).map(h => h.trim());
-
-  // Find columns flexibly
-  const findCol = (colName, aliases) => {
-    // exact match first
-    const h = headers.find(h => h.toLowerCase() === colName.toLowerCase());
-    if (h) return h;
-    // alias match
-    if (aliases) {
-      const a = headers.find(h => aliases.some(al => h.toLowerCase().includes(al.toLowerCase())));
-      if (a) return a;
-    }
-    return null;
-  };
-
-  const dateCol  = findCol('Fecha', ['fecha', 'date', 'día']);
-  const agentCol = findCol('Agente', ['agente', 'agent', 'asesor', 'vendedor', 'nombre']);
-  const chatCol  = findCol('Chat_ID', ['chat', 'id', 'paciente', 'folio']);
-
-  if (!agentCol) { showToast('No se encontró columna "Agente". Revisa la plantilla.'); return; }
-
-  allRows = rows.map((r, i) => {
-    const dateRaw = dateCol ? r[dateCol] : null;
-    const dateVal = parseDate(dateRaw) || `Fila ${i+2}`;
-    const agent   = String(r[agentCol] || 'Sin nombre').trim();
-    const chatId  = chatCol ? String(r[chatCol] || `Chat ${i+1}`).trim() : `Chat ${i+1}`;
-    const week    = dateToWeek(dateVal);
-
-    const criteria = {};
-    CRITERIA.forEach(c => {
-      const col = findCol(c.col, [c.key]);
-      const val = col ? String(r[col] || '').trim().toLowerCase() : '';
-      if (val === 'n/a' || val === 'na' || val === '') {
-        criteria[c.key] = c.optional ? null : false;
-      } else {
-        criteria[c.key] = ['sí','si','yes','1','true','✓','x'].includes(val);
-      }
-    });
-
-    const incidents = {};
-    INCIDENTS.forEach(inc => {
-      const col = findCol(inc.col, [inc.key]);
-      const val = col ? String(r[col] || '').trim().toLowerCase() : '';
-      incidents[inc.key] = ['sí','si','yes','1','true','✓','x'].includes(val);
-    });
-
-    // compliance = % of applicable criteria that passed
-    const applicable = CRITERIA.filter(c => criteria[c.key] !== null);
-    const passed     = applicable.filter(c => criteria[c.key] === true);
-    const compliance = applicable.length ? Math.round(passed.length / applicable.length * 100) : 0;
-
-    return { date: dateVal, week, agent, chatId, criteria, incidents, compliance };
-  });
-
-  showToast(`✓ ${allRows.length} auditorías cargadas`);
-  buildFilterOptions();
-  applyFilters();
-
+  buildConversations(rows);
+  if (!conversations.length) { showToast('No se encontraron conversaciones de ventas válidas.'); return; }
+  aggregate();
+  renderAll();
+  showToast(`✓ ${conversations.length} conversaciones auditadas (${filename})`);
   document.getElementById('uploadZone').style.display = 'none';
   document.getElementById('dashboard').style.display = 'block';
-  document.getElementById('tabBar').style.display = 'block';
+  document.getElementById('tabBar').style.display = 'flex';
 }
 
-function parseDate(v) {
-  if (!v) return null;
-  if (v instanceof Date) return v.toISOString().slice(0,10);
-  const d = new Date(v);
-  if (!isNaN(d)) return d.toISOString().slice(0,10);
-  return String(v);
+// ── Build conversations ─────────────────────────────────────────────────────
+function col(row, names) {
+  for (const k of Object.keys(row)) if (names.includes(norm(k).trim())) return row[k];
+  return '';
 }
 
-function dateToWeek(dateStr) {
-  const d = new Date(dateStr);
-  if (isNaN(d)) return dateStr;
-  const jan4 = new Date(d.getFullYear(), 0, 4);
-  const week = Math.ceil(((d - jan4) / 86400000 + jan4.getDay() + 1) / 7);
-  return `Semana ${week} · ${d.getFullYear()}`;
+function buildConversations(rows) {
+  const groups = {};
+  rows.forEach(r => {
+    const num = String(col(r, ['num_conversacion','num conversacion','conversacion','id'])).trim();
+    if (!num) return;
+    (groups[num] ||= []).push({
+      tipo: norm(col(r, ['tipo'])),
+      direccion: norm(col(r, ['direccion'])),
+      remitente: String(col(r, ['remitente'])).trim(),
+      contenido: String(col(r, ['contenido'])),
+      hora: parseHora(col(r, ['hora'])),
+      agente: String(col(r, ['agente'])).trim(),
+      tipificacion: String(col(r, ['tipificacion'])).trim(),
+      es_venta: norm(col(r, ['es_venta','es venta'])),
+      cliente: String(col(r, ['remitente'])).trim(),
+      url: String(col(r, ['url'])).trim(),
+    });
+  });
+
+  conversations = [];
+  Object.entries(groups).forEach(([num, msgs]) => {
+    // messages only carry text
+    let chat = msgs.filter(m => m.tipo === 'mensaje');
+    chat.sort((a, b) => (a.hora || 0) - (b.hora || 0));
+    const inbound  = chat.filter(m => m.direccion === 'entrante');
+    const humanOut = chat.filter(m => m.direccion === 'saliente' && !isBot(m.remitente));
+    if (!inbound.length || !humanOut.length) return; // not sales-relevant
+
+    const agente = (msgs.find(m => m.agente)?.agente) || 'Sin asignar';
+    const url = msgs.find(m => m.url)?.url || '';
+    const tipificacion = msgs.find(m => m.tipificacion)?.tipificacion || '';
+    const es_venta = msgs.find(m => m.es_venta)?.es_venta || '';
+
+    conversations.push(scoreConversation({ num, chat, inbound, humanOut, agente, url, tipificacion, es_venta }));
+  });
 }
 
-function weekSortKey(weekLabel) {
-  // "Semana 23 · 2025" → "2025-023"
-  const m = weekLabel.match(/Semana (\d+) · (\d+)/);
-  if (!m) return weekLabel;
-  return `${m[2]}-${m[1].padStart(3,'0')}`;
+// ── Score a single conversation ──────────────────────────────────────────────
+function needsReply(text) {
+  const t = norm(text).trim();
+  if (!t) return false;
+  if (t.includes('?')) return true;
+  if (hasAny(t, TOK.request)) return true;
+  const words = t.split(/\s+/);
+  if (words.length <= 2) return false;
+  if (hasAny(t, TOK.closer) && !hasAny(t, TOK.request)) return false;
+  return false;
 }
 
-// ── Filters ────────────────────────────────────────────────────────────────
-function buildFilterOptions() {
-  const weeks  = [...new Set(allRows.map(r => r.week))].sort((a,b) => weekSortKey(a) > weekSortKey(b) ? 1 : -1);
-  const agents = [...new Set(allRows.map(r => r.agent))].sort();
+function scoreConversation(c) {
+  const { chat, inbound, humanOut } = c;
+  const agentText = norm(humanOut.map(m => m.contenido).join('  ||  '));
+  const patientText = norm(inbound.map(m => m.contenido).join('  ||  '));
+  const pillars = {};
 
-  const wSel = document.getElementById('filterWeek');
-  wSel.innerHTML = '<option value="">Todas las semanas</option>';
-  weeks.forEach(w => { const o = document.createElement('option'); o.value = o.textContent = w; wSel.appendChild(o); });
+  // ── P1 Speed ──
+  const firstIn = inbound[0]?.hora;
+  const firstReply = humanOut.find(m => m.hora && firstIn && m.hora >= firstIn)?.hora;
+  let firstRespMin = null;
+  if (firstIn && firstReply) firstRespMin = Math.round((firstReply - firstIn) / 60000);
+  if (firstRespMin !== null && firstRespMin <= 2880) {
+    pillars.p1 = { applies: true, pass: firstRespMin <= 15 };
+  } else {
+    pillars.p1 = { applies: false, pass: null };
+  }
+  c.firstRespMin = (firstRespMin !== null && firstRespMin <= 2880) ? firstRespMin : null;
+  c.repliedUnder2 = c.firstRespMin !== null && c.firstRespMin <= 2;
 
-  // default to latest week
-  if (weeks.length) wSel.value = weeks[weeks.length - 1];
+  // ── P2 Full Attention ── (always applies; FAIL if patient left hanging)
+  const last = chat[chat.length - 1];
+  const dropped = last && last.direccion === 'entrante' && needsReply(last.contenido);
+  pillars.p2 = { applies: true, pass: !dropped };
 
-  const aSel = document.getElementById('filterAgent');
-  aSel.innerHTML = '<option value="">Todos los agentes</option>';
-  agents.forEach(a => { const o = document.createElement('option'); o.value = o.textContent = a; aSel.appendChild(o); });
+  // ── P3 Value before Price ──
+  const priceRe = /\$\s?\d|\b\d{3,}\b\s*(pesos|mxn|mil)|cuesta|tiene un costo|el costo es|el precio es|son \$/i;
+  let p3Applies = false, p3Pass = null, gavePrice = false;
+  for (let i = 0; i < humanOut.length; i++) {
+    if (priceRe.test(norm(humanOut[i].contenido)) || /\$\s?\d/.test(humanOut[i].contenido)) {
+      gavePrice = true; p3Applies = true;
+      const before = norm(humanOut.slice(0, i + 1).map(m => m.contenido).join(' '));
+      const after  = norm(humanOut.slice(i + 1, i + 3).map(m => m.contenido).join(' '));
+      const ctx = hasAny(before, TOK.value) || hasAny(after, TOK.value);
+      if (ctx) { p3Pass = true; }
+      else if (p3Pass === null) { p3Pass = false; }
+    }
+  }
+  pillars.p3 = { applies: p3Applies, pass: p3Applies ? p3Pass : null };
+  c.gavePrice = gavePrice;
+
+  // ── P4 Safe Language ── (always applies)
+  let clinicalHit = false;
+  for (const claim of TOK.clinical) {
+    let idx = agentText.indexOf(claim);
+    while (idx !== -1) {
+      const pre = agentText.slice(Math.max(0, idx - 12), idx);
+      if (!/\b(no|sin)\s$/.test(pre)) { clinicalHit = true; break; }
+      idx = agentText.indexOf(claim, idx + 1);
+    }
+    if (clinicalHit) break;
+  }
+  const prohibitedHit = hasAny(agentText, TOK.prohibited);
+  pillars.p4 = { applies: true, pass: !(clinicalHit || prohibitedHit) };
+  c.clinicalHit = clinicalHit;
+  c.prohibitedHit = prohibitedHit;
+
+  // ── P5 Emotional Sensitivity ──
+  const hasEmotion = hasAny(patientText, TOK.emotion);
+  const hasFrustration = hasAny(patientText, TOK.frustration);
+  const validated = hasAny(agentText, TOK.validation);
+  if (hasEmotion || hasFrustration) {
+    pillars.p5 = { applies: true, pass: validated };
+  } else {
+    pillars.p5 = { applies: false, pass: null };
+  }
+  c.hasFrustration = hasFrustration;
+  c.validated = validated;
+
+  // ── Red flags ──
+  c.flags = {
+    r1: hasFrustration && !validated,
+    r2: clinicalHit,
+    r3: gavePrice && hasAny(norm(chat.map(m => m.contenido).join(' ')), TOK.highValue),
+    r4: (dropped && !chat.slice(chat.indexOf(last) + 1).some(m => m.direccion === 'saliente'))
+        || (firstRespMin !== null && firstRespMin > 1440)
+        || norm(c.tipificacion).includes('pendiente respuesta'),
+  };
+
+  c.pillars = pillars;
+
+  // PXI for this conversation
+  let wSum = 0, sSum = 0;
+  for (const k of Object.keys(WEIGHTS)) {
+    if (pillars[k].applies) { wSum += WEIGHTS[k]; sSum += WEIGHTS[k] * (pillars[k].pass ? 1 : 0); }
+  }
+  c.pxi = wSum ? Math.round(sSum / wSum * 100) : null;
+  return c;
 }
 
-function applyFilters() {
-  const week  = document.getElementById('filterWeek').value;
-  const agent = document.getElementById('filterAgent').value;
-  filtered = allRows.filter(r =>
-    (!week  || r.week  === week) &&
-    (!agent || r.agent === agent)
-  );
-  document.getElementById('recordCount').textContent =
-    `${filtered.length} chat${filtered.length !== 1 ? 's' : ''} auditado${filtered.length !== 1 ? 's' : ''}`;
-  renderAll();
+// ── Aggregate per agent + clinic ────────────────────────────────────────────
+function median(arr) {
+  if (!arr.length) return null;
+  const s = [...arr].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
 }
 
-function clearFilters() {
-  document.getElementById('filterWeek').value  = '';
-  document.getElementById('filterAgent').value = '';
-  applyFilters();
+function aggregate() {
+  const byAgent = {};
+  conversations.forEach(c => (byAgent[c.agente] ||= []).push(c));
+
+  agentStats = Object.entries(byAgent).map(([agent, convs]) => {
+    const pillarPct = {};
+    for (const k of Object.keys(WEIGHTS)) {
+      const appl = convs.filter(c => c.pillars[k].applies);
+      const pass = appl.filter(c => c.pillars[k].pass);
+      pillarPct[k] = appl.length ? Math.round(pass.length / appl.length * 100) : null;
+    }
+    // PXI = weighted avg of available pillarPct, renormalized
+    let wSum = 0, sSum = 0;
+    for (const k of Object.keys(WEIGHTS)) {
+      if (pillarPct[k] !== null) { wSum += WEIGHTS[k]; sSum += WEIGHTS[k] * pillarPct[k]; }
+    }
+    const pxi = wSum ? Math.round(sSum / wSum) : null;
+
+    const respTimes = convs.map(c => c.firstRespMin).filter(v => v !== null);
+    const slaAppl = convs.filter(c => c.pillars.p1.applies);
+    const slaPass = slaAppl.filter(c => c.pillars.p1.pass);
+    const flags = convs.reduce((n, c) => n + Object.values(c.flags).filter(Boolean).length, 0);
+
+    return {
+      agent, count: convs.length, pillarPct, pxi,
+      medianResp: median(respTimes),
+      slaPct: slaAppl.length ? Math.round(slaPass.length / slaAppl.length * 100) : null,
+      under2Pct: respTimes.length ? Math.round(respTimes.filter(v => v <= 2).length / respTimes.length * 100) : null,
+      appts: convs.filter(c => c.es_venta === 'si').length,
+      flags,
+    };
+  }).sort((a, b) => (b.pxi ?? -1) - (a.pxi ?? -1));
+
+  const ranked = agentStats.filter(a => a.count >= 3);
+  const allResp = conversations.map(c => c.firstRespMin).filter(v => v !== null);
+  const slaAppl = conversations.filter(c => c.pillars.p1.applies);
+  const slaPass = slaAppl.filter(c => c.pillars.p1.pass);
+  clinic = {
+    convs: conversations.length,
+    pxi: ranked.length ? Math.round(ranked.reduce((s, a) => s + a.pxi * a.count, 0) / ranked.reduce((s, a) => s + a.count, 0)) : null,
+    medianResp: median(allResp),
+    slaPct: slaAppl.length ? Math.round(slaPass.length / slaAppl.length * 100) : null,
+    appts: conversations.filter(c => c.es_venta === 'si').length,
+    flags: conversations.reduce((n, c) => n + Object.values(c.flags).filter(Boolean).length, 0),
+  };
 }
 
-// ── Tab switching ──────────────────────────────────────────────────────────
+// ── Tabs ────────────────────────────────────────────────────────────────────
 function switchTab(tab) {
   activeTab = tab;
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
-  document.getElementById('panelCumplimiento').style.display = tab === 'cumplimiento' ? '' : 'none';
-  document.getElementById('panelIncidencias').style.display  = tab === 'incidencias'  ? '' : 'none';
+  ['scorecard','flags','sampling'].forEach(p =>
+    document.getElementById('panel-' + p).style.display = p === tab ? '' : 'none');
 }
 
-// ── Render all ─────────────────────────────────────────────────────────────
+// ── Render ──────────────────────────────────────────────────────────────────
+let charts = {};
+function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
 function renderAll() {
   renderKPIs();
-  renderAgentCards();
-  renderCriteriaChart();
-  renderTrendChart();
-  renderIncidentSummary();
-  renderAgentIncidents();
+  renderScorecards();
+  renderCharts();
+  renderFlags();
+  renderSampling();
 }
 
-// ── KPIs ───────────────────────────────────────────────────────────────────
+function pxiClass(v) { return v == null ? '' : v >= 80 ? 'success' : v >= 60 ? 'warning' : 'danger'; }
+
 function renderKPIs() {
-  const agents  = [...new Set(filtered.map(r => r.agent))].length;
-  const total   = filtered.length;
-  const avgComp = total ? Math.round(filtered.reduce((s,r) => s + r.compliance, 0) / total) : 0;
-  const fullPass = filtered.filter(r => r.compliance === 100).length;
-  const incCount = filtered.reduce((s,r) => s + INCIDENTS.filter(i => r.incidents[i.key]).length, 0);
-
-  const cls = avgComp >= 80 ? 'success' : avgComp >= 60 ? 'warning' : 'danger';
-
   document.getElementById('kpiGrid').innerHTML = `
-    <div class="kpi-card ${cls}">
-      <div class="kpi-label">Cumplimiento promedio</div>
-      <div class="kpi-value">${avgComp}<span style="font-size:16px;font-weight:600">%</span></div>
-      <div class="kpi-sub">De todos los criterios</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Chats auditados</div>
-      <div class="kpi-value">${total}</div>
-      <div class="kpi-sub">${agents} agente${agents !== 1 ? 's' : ''}</div>
-    </div>
-    <div class="kpi-card success">
-      <div class="kpi-label">Chats 100% conformes</div>
-      <div class="kpi-value">${fullPass}</div>
-      <div class="kpi-sub">${total ? Math.round(fullPass/total*100) : 0}% del total</div>
-    </div>
-    <div class="kpi-card ${incCount > 0 ? 'danger' : 'success'}">
-      <div class="kpi-label">Total incidencias</div>
-      <div class="kpi-value">${incCount}</div>
-      <div class="kpi-sub">En el período</div>
-    </div>
+    ${kpi('Conversaciones auditadas', clinic.convs, '')}
+    ${kpi('PXI de la clínica', (clinic.pxi ?? '—'), '/100', pxiClass(clinic.pxi))}
+    ${kpi('Mediana 1ª respuesta', clinic.medianResp != null ? clinic.medianResp + ' min' : '—', '')}
+    ${kpi('SLA ≤15 min', clinic.slaPct != null ? clinic.slaPct + '%' : '—', '', pxiClass(clinic.slaPct))}
+    ${kpi('Citas agendadas', clinic.appts, '')}
+    ${kpi('Alertas abiertas', clinic.flags, '', clinic.flags > 0 ? 'danger' : 'success')}
   `;
 }
-
-// ── Agent cards ────────────────────────────────────────────────────────────
-function renderAgentCards() {
-  const agents = [...new Set(filtered.map(r => r.agent))].sort();
-  const grid = document.getElementById('agentGrid');
-
-  grid.innerHTML = agents.map(agent => {
-    const rows = filtered.filter(r => r.agent === agent);
-    const avg  = Math.round(rows.reduce((s,r) => s + r.compliance, 0) / rows.length);
-    const pass = rows.filter(r => r.compliance === 100).length;
-    const fail = rows.length - pass;
-    const cls  = avg >= 80 ? 'success' : avg >= 60 ? 'warning' : 'danger';
-
-    // top missed criteria
-    const missed = CRITERIA.map(c => {
-      const applicable = rows.filter(r => r.criteria[c.key] !== null);
-      const failed     = applicable.filter(r => r.criteria[c.key] === false);
-      return { label: c.label, pct: applicable.length ? Math.round(failed.length / applicable.length * 100) : 0 };
-    }).filter(c => c.pct > 0).sort((a,b) => b.pct - a.pct).slice(0, 3);
-
-    const missedHtml = missed.length
-      ? missed.map(m => `<div class="missed-item">${truncate(m.label, 52)} <span>${m.pct}%</span></div>`).join('')
-      : `<div style="font-size:12px;color:var(--success)">✓ Sin criterios fallidos</div>`;
-
-    return `
-      <div class="agent-card">
-        <div class="agent-card-header">
-          <div>
-            <div class="agent-name">${agent}</div>
-            <div class="agent-week">${rows.length} chat${rows.length !== 1 ? 's' : ''} auditado${rows.length !== 1 ? 's' : ''}</div>
-          </div>
-          <div class="compliance-big ${cls}">${avg}%</div>
-        </div>
-        <div class="compliance-bar-wrap">
-          <div class="compliance-bar-label"><span>Cumplimiento</span><span>${pass}/${rows.length} conformes</span></div>
-          <div class="compliance-bar-track">
-            <div class="compliance-bar-fill ${cls}" style="width:${avg}%"></div>
-          </div>
-        </div>
-        <div class="agent-stats">
-          <div class="agent-stat">
-            <div class="agent-stat-val" style="color:var(--success)">${pass}</div>
-            <div class="agent-stat-lbl">Conformes</div>
-          </div>
-          <div class="agent-stat">
-            <div class="agent-stat-val" style="color:var(--danger)">${fail}</div>
-            <div class="agent-stat-lbl">Con fallas</div>
-          </div>
-          <div class="agent-stat">
-            <div class="agent-stat-val" style="color:var(--warning)">${rows.reduce((s,r) => s + INCIDENTS.filter(i => r.incidents[i.key]).length, 0)}</div>
-            <div class="agent-stat-lbl">Incidencias</div>
-          </div>
-        </div>
-        <div class="missed-criteria">
-          <div class="missed-label">Criterios más fallidos</div>
-          ${missedHtml}
-        </div>
-      </div>`;
-  }).join('');
+function kpi(label, value, suffix, cls = '') {
+  return `<div class="kpi-card ${cls}">
+    <div class="kpi-label">${label}</div>
+    <div class="kpi-value">${value}<span class="kpi-suffix">${suffix}</span></div>
+  </div>`;
 }
 
-// ── Criteria chart (horizontal bars) ──────────────────────────────────────
-function renderCriteriaChart() {
-  destroyChart('chartCriteria');
-  if (!filtered.length) return;
+function renderScorecards() {
+  const ranked = agentStats.filter(a => a.count >= 3);
+  const low = agentStats.filter(a => a.count < 3);
 
-  const data = CRITERIA.map(c => {
-    const applicable = filtered.filter(r => r.criteria[c.key] !== null);
-    const failed     = applicable.filter(r => r.criteria[c.key] === false);
-    return applicable.length ? Math.round(failed.length / applicable.length * 100) : 0;
-  });
+  const cardHtml = a => {
+    const cls = pxiClass(a.pxi);
+    const pillars = Object.keys(WEIGHTS).map(k => {
+      const v = a.pillarPct[k];
+      const pc = v == null ? 'na' : v >= 80 ? 'success' : v >= 60 ? 'warning' : 'danger';
+      return `<div class="pillar-cell ${pc}">
+        <div class="pillar-name">${PILLAR_LABELS[k].split(' · ')[0]}</div>
+        <div class="pillar-pct">${v == null ? 'N/A' : v + '%'}</div>
+      </div>`;
+    }).join('');
+    return `<div class="fi-card scorecard">
+      <div class="sc-head">
+        <div>
+          <div class="sc-agent">${a.agent}</div>
+          <div class="sc-sub">${a.count} conversaciones · ${a.appts} cita${a.appts !== 1 ? 's' : ''}</div>
+        </div>
+        <div class="sc-pxi ${cls}">${a.pxi ?? '—'}<span>PXI</span></div>
+      </div>
+      <div class="pillar-grid">${pillars}</div>
+      <div class="sc-foot">
+        <span>SLA ≤15m: <strong>${a.slaPct ?? '—'}%</strong></span>
+        <span>Mediana: <strong>${a.medianResp != null ? a.medianResp + 'm' : '—'}</strong></span>
+        <span class="${a.flags > 0 ? 'flag-warn' : ''}">Alertas: <strong>${a.flags}</strong></span>
+      </div>
+    </div>`;
+  };
 
-  const shortLabels = [
-    'Usó nombre','Preguntas SPIN','Valor antes precio',
-    'Siguiente paso','Respuesta 2 min','Documentó HubSpot',
-    'Protocolo objeciones','Info médica','Reconoció emoción','EVRA+G',
-  ];
+  document.getElementById('scorecardGrid').innerHTML = ranked.map(cardHtml).join('');
+  const lowWrap = document.getElementById('lowVolume');
+  if (low.length) {
+    lowWrap.style.display = '';
+    lowWrap.innerHTML = `<div class="section-note">Agentes con &lt;3 conversaciones (fuera del ranking)</div>
+      <div class="scorecard-grid">${low.map(cardHtml).join('')}</div>`;
+  } else lowWrap.style.display = 'none';
+}
 
-  charts['chartCriteria'] = new Chart(document.getElementById('chartCriteria'), {
+function renderCharts() {
+  const ranked = agentStats.filter(a => a.count >= 3);
+  const labels = ranked.map(a => a.agent);
+  const SAGE = '#738D84', FOREST = '#20281B';
+  const PIL_COLORS = ['#4A7B9D','#738D84','#C0574A','#6B9E6E','#8FA89F'];
+
+  destroyChart('chartPxi');
+  charts.chartPxi = new Chart(document.getElementById('chartPxi'), {
     type: 'bar',
-    data: {
-      labels: shortLabels,
-      datasets: [{
-        label: '% chats con falla',
-        data,
-        backgroundColor: data.map(v => v >= 40 ? '#dc262688' : v >= 20 ? '#d9770688' : '#16a34a44'),
-        borderColor:     data.map(v => v >= 40 ? '#dc2626'   : v >= 20 ? '#d97706'   : '#16a34a'),
-        borderWidth: 2, borderRadius: 5,
-      }],
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { min: 0, max: 100, ticks: { callback: v => v + '%', font: { size: 11 } }, grid: { color: '#e2e8f0' } },
-        y: { ticks: { font: { size: 11 } }, grid: { display: false } },
-      },
-    },
+    data: { labels, datasets: [{ label: 'PXI', data: ranked.map(a => a.pxi),
+      backgroundColor: SAGE, borderRadius: 6 }] },
+    options: baseOpts(100, '%'),
+  });
+
+  destroyChart('chartPillars');
+  charts.chartPillars = new Chart(document.getElementById('chartPillars'), {
+    type: 'bar',
+    data: { labels, datasets: Object.keys(WEIGHTS).map((k, i) => ({
+      label: PILLAR_LABELS[k].split(' · ')[1],
+      data: ranked.map(a => a.pillarPct[k]),
+      backgroundColor: PIL_COLORS[i], borderRadius: 4,
+    })) },
+    options: { ...baseOpts(100, '%'), plugins: { legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 10 } } } },
+  });
+
+  destroyChart('chartSla');
+  charts.chartSla = new Chart(document.getElementById('chartSla'), {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'SLA ≤15 min', data: ranked.map(a => a.slaPct),
+      backgroundColor: '#6B9E6E', borderRadius: 6 }] },
+    options: baseOpts(100, '%'),
   });
 }
 
-// ── Trend chart ────────────────────────────────────────────────────────────
-function renderTrendChart() {
-  destroyChart('chartTrend');
-  const weeks  = [...new Set(allRows.map(r => r.week))].sort((a,b) => weekSortKey(a) > weekSortKey(b) ? 1 : -1);
-  const agents = [...new Set(filtered.map(r => r.agent))].sort();
-  const PALETTE = ['#2563eb','#7c3aed','#db2777','#d97706','#16a34a','#0891b2'];
-
-  const datasets = agents.slice(0,6).map((agent, i) => ({
-    label: agent,
-    data: weeks.map(w => {
-      const rows = allRows.filter(r => r.agent === agent && r.week === w);
-      return rows.length ? Math.round(rows.reduce((s,r) => s + r.compliance, 0) / rows.length) : null;
-    }),
-    borderColor: PALETTE[i % PALETTE.length],
-    backgroundColor: PALETTE[i % PALETTE.length] + '22',
-    tension: .3, fill: false, pointRadius: 4, spanGaps: true,
-  }));
-
-  charts['chartTrend'] = new Chart(document.getElementById('chartTrend'), {
-    type: 'line',
-    data: { labels: weeks.map(w => w.replace(' · ', '\n')), datasets },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'top', labels: { font: { size: 11 }, boxWidth: 12 } } },
-      scales: {
-        y: { min: 0, max: 100, ticks: { callback: v => v + '%', font: { size: 11 } }, grid: { color: '#e2e8f0' } },
-        x: { ticks: { font: { size: 10 } }, grid: { display: false } },
-      },
+function baseOpts(max, suffix) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      y: { min: 0, max, ticks: { callback: v => v + (suffix || ''), font: { size: 11 }, color: '#3D4E36' }, grid: { color: '#E8E7D8' } },
+      x: { ticks: { font: { size: 11 }, color: '#3D4E36' }, grid: { display: false } },
     },
-  });
+  };
 }
 
-// ── Incident summary cards ─────────────────────────────────────────────────
-function renderIncidentSummary() {
-  document.getElementById('incidentSummary').innerHTML = INCIDENTS.map(inc => {
-    const count   = filtered.filter(r => r.incidents[inc.key]).length;
-    const agents  = [...new Set(filtered.filter(r => r.incidents[inc.key]).map(r => r.agent))];
-    const agentTxt = agents.length ? agents.join(', ') : '—';
-    return `
-      <div class="incident-card ${count === 0 ? 'zero' : ''}">
-        <div class="incident-count">${count}</div>
-        <div class="incident-info">
-          <div class="incident-title">${inc.label}</div>
-          <div class="incident-agents">${count ? 'Agente(s): ' + agentTxt : 'Sin incidencias'}</div>
-        </div>
-      </div>`;
-  }).join('');
-}
+// ── Flags queue ─────────────────────────────────────────────────────────────
+const FLAG_META = {
+  r1: { label: 'R1 · Frustración no validada', color: '#C0574A' },
+  r2: { label: 'R2 · Info clínica sin confirmación', color: '#C0574A' },
+  r3: { label: 'R3 · Cotización alto valor sin supervisor', color: '#4A7B9D' },
+  r4: { label: 'R4 · Lead interesado >24h sin respuesta', color: '#738D84' },
+};
 
-// ── Per-agent incident detail ──────────────────────────────────────────────
-function renderAgentIncidents() {
-  const agents = [...new Set(filtered.map(r => r.agent))].sort();
-  document.getElementById('agentIncidents').innerHTML = agents.map(agent => {
-    const rows = filtered.filter(r => r.agent === agent);
-    const agentIncs = INCIDENTS.map(inc => {
-      const chats = rows.filter(r => r.incidents[inc.key]);
-      return { inc, chats };
-    }).filter(x => x.chats.length > 0);
-
-    const totalIncs = agentIncs.reduce((s, x) => s + x.chats.length, 0);
-
-    const bodyHtml = agentIncs.length
-      ? agentIncs.map(x => `
-          <div class="incident-row">
-            <div class="incident-row-dot"></div>
-            <div class="incident-row-text">
-              <strong>${x.inc.label}</strong><br>
-              <span class="incident-row-chats">Chats: ${x.chats.map(r => r.chatId).join(', ')} · ${x.chats.map(r => r.date).join(', ')}</span>
-            </div>
-            <div style="font-size:13px;font-weight:700;color:var(--warning);min-width:24px;text-align:right">${x.chats.length}</div>
-          </div>`)
-        .join('')
-      : `<div class="no-incidents">✓ Sin incidencias en el período seleccionado</div>`;
-
-    return `
-      <div class="agent-incident-block">
-        <div class="agent-incident-header">
-          <div class="agent-incident-name">${agent}</div>
-          <div class="agent-incident-count ${totalIncs === 0 ? 'zero' : ''}">${totalIncs} incidencia${totalIncs !== 1 ? 's' : ''}</div>
-        </div>
-        ${bodyHtml}
-      </div>`;
-  }).join('');
-}
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-function destroyChart(id) {
-  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
-}
-
-function truncate(str, n) {
-  return str.length > n ? str.slice(0, n) + '…' : str;
-}
-
-// ── Template download ──────────────────────────────────────────────────────
-function downloadTemplate() {
-  const headers = ['Fecha','Agente','Chat_ID',
-    ...CRITERIA.map(c => c.col),
-    ...INCIDENTS.map(i => i.col),
-  ];
-  const example = [
-    ['2024-06-03','María López','Chat_001','Sí','Sí','Sí','Sí','Sí','Sí','Sí','Sí','N/A','N/A','No','No','No','No','No','No','No','No'],
-    ['2024-06-03','Carlos Ruiz','Chat_002','No','Sí','No','Sí','No','Sí','Sí','Sí','Sí','N/A','Sí','No','No','No','No','No','No','No'],
-    ['2024-06-04','Ana García', 'Chat_003','Sí','No','Sí','No','Sí','Sí','Sí','Sí','N/A','Sí','No','No','Sí','No','No','No','No','Sí'],
-  ];
-  const ws = XLSX.utils.aoa_to_sheet([headers, ...example]);
-  ws['!cols'] = headers.map(() => ({ wch: 26 }));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Auditorías');
-  XLSX.writeFile(wb, 'plantilla_auditoria.xlsx');
-}
-
-// ── Sample data ────────────────────────────────────────────────────────────
-function generateSampleData() {
-  const agents = ['María López','Carlos Ruiz','Ana García','Luis Torres'];
-  const rows = [];
-  const today = new Date();
-
-  for (let d = 20; d >= 0; d--) {
-    const date = new Date(today);
-    date.setDate(today.getDate() - d);
-    const dateStr = date.toISOString().slice(0,10);
-
-    agents.forEach((agent, ai) => {
-      if (Math.random() < 0.35) return;
-      const numChats = Math.ceil(Math.random() * 3);
-      for (let c = 0; c < numChats; c++) {
-        const baseCompliance = 0.6 + ai * 0.08;
-        const row = { Fecha: dateStr, Agente: agent, Chat_ID: `${agent.split(' ')[0]}_${dateStr}_${c+1}` };
-        CRITERIA.forEach(cr => {
-          if (cr.optional) row[cr.col] = Math.random() < 0.4 ? (Math.random() < baseCompliance ? 'Sí' : 'No') : 'N/A';
-          else row[cr.col] = Math.random() < baseCompliance ? 'Sí' : 'No';
-        });
-        INCIDENTS.forEach(inc => {
-          row[inc.col] = Math.random() < (0.15 - ai * 0.03) ? 'Sí' : 'No';
-        });
-        rows.push(row);
-      }
+function renderFlags() {
+  // build filter options
+  const aSel = document.getElementById('flagAgent');
+  if (aSel.options.length <= 1) {
+    [...new Set(conversations.map(c => c.agente))].sort().forEach(a => {
+      const o = document.createElement('option'); o.value = o.textContent = a; aSel.appendChild(o);
     });
   }
-  return rows;
+
+  const items = [];
+  conversations.forEach(c => {
+    Object.keys(c.flags).forEach(f => {
+      if (c.flags[f]) items.push({ conv: c, flag: f });
+    });
+  });
+  const filtered = items.filter(i =>
+    (!flagFilterAgent || i.conv.agente === flagFilterAgent) &&
+    (!flagFilterType || i.flag === flagFilterType));
+
+  document.getElementById('flagCount').textContent =
+    `${filtered.length} alerta${filtered.length !== 1 ? 's' : ''}`;
+
+  document.getElementById('flagQueue').innerHTML = filtered.length
+    ? filtered.map(({ conv, flag }) => `
+      <div class="flag-row" style="border-left-color:${FLAG_META[flag].color}">
+        <div class="flag-tag" style="background:${FLAG_META[flag].color}">${FLAG_META[flag].label}</div>
+        <div class="flag-body">
+          <div class="flag-agent">${conv.agente} · conv. ${conv.num}</div>
+          <div class="flag-detail">${flagDetail(conv, flag)}</div>
+        </div>
+        ${conv.url ? `<a class="flag-link" href="${conv.url}" target="_blank" rel="noopener">Abrir en Atom ↗</a>` : ''}
+      </div>`).join('')
+    : `<div class="empty-state">✓ Sin alertas con estos filtros</div>`;
 }
 
-// ── Toast ──────────────────────────────────────────────────────────────────
+function flagDetail(c, flag) {
+  if (flag === 'r1') return 'El paciente expresó frustración y no se detectó una validación emocional.';
+  if (flag === 'r2') return 'Se detectó una afirmación clínica fuera de alcance (tasa de éxito, garantía, etc.).';
+  if (flag === 'r3') return 'Se compartió un precio y el hilo menciona FIV/in vitro/PGT/DGP/ovodonación — verificar involucramiento de supervisora.';
+  if (flag === 'r4') return `Lead con respuesta pendiente${c.firstRespMin != null ? ` (1ª respuesta: ${c.firstRespMin} min)` : ''}.`;
+  return '';
+}
+
+function setFlagAgent(v) { flagFilterAgent = v; renderFlags(); }
+function setFlagType(v) { flagFilterType = v; renderFlags(); }
+
+// ── Human-sampling tab ──────────────────────────────────────────────────────
+const SAMPLE_ITEMS = [
+  'Uso real del nombre del paciente / personalización genuina',
+  'Profundidad de descubrimiento: ≥2 preguntas SPIN abiertas antes de informar',
+  'Protocolo de objeciones completo (Reconocer → Validar → Informar → Invitar)',
+  'Siguiente paso concreto y fechado al cierre',
+  'HubSpot: motivo de cita + estado del deal documentado',
+];
+
+function sampleKey(num, idx) { return `pxi_sample_${num}_${idx}`; }
+
+function renderSampling() {
+  const byAgent = {};
+  conversations.forEach(c => (byAgent[c.agente] ||= []).push(c));
+
+  const html = Object.entries(byAgent).map(([agent, convs]) => {
+    // deterministic sample of up to 3
+    const picks = [...convs].sort((a, b) => a.num.localeCompare(b.num)).filter((_, i) => i % Math.ceil(convs.length / 3) === 0).slice(0, 3);
+    const blocks = picks.map(c => `
+      <div class="sample-conv">
+        <div class="sample-conv-head">
+          <span>Conv. ${c.num}</span>
+          ${c.url ? `<a href="${c.url}" target="_blank" rel="noopener">Abrir en Atom ↗</a>` : ''}
+        </div>
+        ${SAMPLE_ITEMS.map((item, i) => {
+          const key = sampleKey(c.num, i);
+          const checked = localStorage.getItem(key) === '1' ? 'checked' : '';
+          return `<label class="sample-item">
+            <input type="checkbox" ${checked} onchange="localStorage.setItem('${key}', this.checked ? '1':'0')" />
+            <span>${item}</span></label>`;
+        }).join('')}
+      </div>`).join('');
+    return `<div class="fi-card sample-agent">
+      <div class="sample-agent-name">${agent}</div>
+      ${blocks || '<div class="empty-state">Sin conversaciones para muestrear</div>'}
+    </div>`;
+  }).join('');
+
+  document.getElementById('samplingGrid').innerHTML = html;
+}
+
+// ── Sample / template ────────────────────────────────────────────────────────
+function loadSampleData() { autoLoad(true); }
+
+function downloadTemplate() {
+  const headers = ['num_conversacion','cliente_csv','contacto','fecha_inicio_gestion','canal','agente',
+    'tipificacion','es_venta','tipo','direccion','remitente','contenido','hora','url'];
+  const example = [
+    ['1001','Laura Méndez','+5215512345678','01/06/2024','WhatsApp','María López','Interesado','No','mensaje','entrante','Laura Méndez','Hola, ¿qué precio tiene la consulta?','01/06/2024 a las 10:00 am','https://atom.fi/conv/1001'],
+    ['1001','Laura Méndez','+5215512345678','01/06/2024','WhatsApp','María López','Interesado','No','mensaje','saliente','María López','¡Hola! La consulta de valoración incluye ultrasonido y evaluación, tiene un costo de $1,200.','01/06/2024 a las 10:08 am','https://atom.fi/conv/1001'],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...example]);
+  ws['!cols'] = headers.map(() => ({ wch: 20 }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Historial');
+  XLSX.writeFile(wb, 'plantilla_export_atom.xlsx');
+}
+
+// ── Auto-load embedded data ──────────────────────────────────────────────────
+async function autoLoad(force) {
+  for (const name of ['datos.xlsx', 'datos.csv']) {
+    try {
+      const res = await fetch(name, { cache: 'no-store' });
+      if (!res.ok) continue;
+      const buf = await res.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array', cellDates: false });
+      ingestWorkbook(wb, name);
+      return true;
+    } catch (_) {}
+  }
+  if (force) showToast('No se encontró datos.xlsx ni datos.csv en el repositorio.');
+  return false;
+}
+
+// ── Toast ────────────────────────────────────────────────────────────────────
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 3500);
-}
-
-// ── Auto-load embedded data on startup ─────────────────────────────────────
-// Looks for a "datos.csv" or "datos.xlsx" file next to index.html and loads it
-// automatically so the dashboard shows historical data without an upload.
-async function autoLoad() {
-  for (const name of ['datos.csv', 'datos.xlsx']) {
-    try {
-      const res = await fetch(name, { cache: 'no-store' });
-      if (!res.ok) continue;
-      const buf = await res.arrayBuffer();
-      const wb  = XLSX.read(buf, { type: 'array', cellDates: true });
-      const ws  = wb.Sheets[wb.SheetNames[0]];
-      const json = XLSX.utils.sheet_to_json(ws, { defval: '' });
-      if (json.length) { processData(json, name); return true; }
-    } catch (_) { /* file not present — fall through to upload screen */ }
-  }
-  return false;
 }
 
 autoLoad();
