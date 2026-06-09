@@ -73,6 +73,12 @@ header { background: var(--fi-ivory); border-bottom: 1px solid var(--fi-border);
 .kpi-value { font-size: 2rem; font-weight: 400; line-height: 1; }
 .kpi-suffix { font-size: .9rem; color: var(--fi-forest-soft); font-weight: 300; }
 
+/* ── Nota de datos ── */
+.data-note { max-width: 1140px; margin: 24px auto 0; padding: 14px 18px; display: flex; gap: 12px; align-items: flex-start; background: var(--fi-ivory); border: 1px solid var(--fi-border); border-left: 3px solid var(--fi-sage); border-radius: var(--r-md); box-shadow: var(--shadow); font-size: .875rem; color: var(--fi-forest-soft); line-height: 1.5; }
+.data-note-icon { background: var(--fi-sage); color: #fff; border-radius: 50%; width: 22px; height: 22px; flex: 0 0 22px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .8125rem; margin-top: 1px; }
+.data-note strong { color: var(--fi-forest); }
+.data-note code { background: var(--fi-cream); border: 1px solid var(--fi-border); border-radius: var(--r-sm); padding: 1px 6px; font-size: .8125rem; }
+
 /* ── Guía de los 5 pilares ── */
 .pillar-guide { max-width: 1140px; margin: 28px auto 0; padding: 0 24px; }
 .pillar-guide > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--fi-forest); color: var(--fi-cream); border-radius: var(--r-md); padding: 16px 22px; font-size: 1.0625rem; font-weight: 500; }

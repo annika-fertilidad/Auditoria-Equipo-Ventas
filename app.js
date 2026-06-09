@@ -125,7 +125,14 @@ function buildConversations(rows) {
     const humanOut = chat.filter(m => m.direccion === 'saliente' && !isBot(m.remitente));
     if (!inbound.length || !humanOut.length) return; // not sales-relevant
 
-    const agente = (msgs.find(m => m.agente)?.agente) || 'Sin asignar';
+    // Coordinator = the human (non-bot) person who sent the outbound replies.
+    // This is the most reliable signal; the `agente` column is used only as a fallback.
+    // (Patient names live on `entrante` messages, so they can never be picked here.)
+    const outCounts = {};
+    humanOut.forEach(m => { if (m.remitente) outCounts[m.remitente] = (outCounts[m.remitente] || 0) + 1; });
+    const topOut = Object.entries(outCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
+    const agenteCol = (msgs.find(m => m.agente)?.agente || '').trim();
+    const agente = topOut || agenteCol || 'Sin asignar';
     const url = msgs.find(m => m.url)?.url || '';
     const tipificacion = msgs.find(m => m.tipificacion)?.tipificacion || '';
     const es_venta = msgs.find(m => m.es_venta)?.es_venta || '';
