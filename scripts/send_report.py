@@ -118,8 +118,7 @@ def load(path):
     return groups
 
 # Working hours = 07:00–24:00; off-hours = 00:00–07:00. SLA clock pauses off-hours.
-WORK_START_H = 7
-LATE_CUTOFF_H = 22  # after 10 p.m. a 2h SLA can't be met before midnight
+WORK_START_H = 7  # working hours run 7 a.m.–midnight (full coverage via shifts)
 def working_minutes_between(t0, t1):
     if not t0 or not t1 or t1 <= t0:
         return 0
@@ -203,10 +202,10 @@ def score(num, msgs):
     morning_queue = False
     if pending_since is not None:  # thread ends with the lead still waiting
         h = pending_since.hour
-        if h < WORK_START_H or h >= LATE_CUTOFF_H:
-            morning_queue = True   # off-hours or near shift end → first morning shift
+        if h < WORK_START_H:
+            morning_queue = True   # arrived during off-hours (12am–7am) → first morning shift
         else:
-            agent_slow = True      # arrived with working time available, still unanswered
+            agent_slow = True      # arrived during working hours, still unanswered → agent accountable
     flags = {
         "r1": frus and not validated,
         "r2": clinical,

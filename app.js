@@ -145,8 +145,7 @@ function buildConversations(rows) {
 
 // Working hours = 07:00–24:00 daily; off-hours = 00:00–07:00. The SLA clock
 // only runs during working hours (it pauses overnight).
-const WORK_START_H = 7;     // 7 a.m.
-const LATE_CUTOFF_H = 22;   // after 10 p.m. → can't meet a 2h SLA before midnight
+const WORK_START_H = 7;     // 7 a.m. (working hours run 7 a.m.–midnight, full coverage)
 function workingMinutesBetween(t0, t1) {
   if (!t0 || !t1 || t1 <= t0) return 0;
   let total = 0;
@@ -261,8 +260,8 @@ function scoreConversation(c) {
   if (pendingSince !== null) {            // thread ends with the lead still waiting
     const h = new Date(pendingSince).getHours();
     c.pendingHour = h;
-    if (h < WORK_START_H || h >= LATE_CUTOFF_H) morningQueue = true;  // off-hours or near shift end
-    else agentSlow = true;               // arrived with working time available, still unanswered
+    if (h < WORK_START_H) morningQueue = true;  // arrived during off-hours (12am–7am)
+    else agentSlow = true;               // arrived during working hours, still unanswered → agent accountable
   }
   c.maxWaitWorking = maxWaitWorking;
   c.agentSlow = agentSlow;
