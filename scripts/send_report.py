@@ -306,15 +306,44 @@ def build_html(period_label, cur, prev, errors):
 </div></body></html>"""
 
 def send(subject, html):
-    import urllib.request
-    key = os.environ["RESEND_API_KEY"]
-    sender = os.environ["REPORT_FROM"]
-    to = [x.strip() for x in os.environ["REPORT_TO"].split(",") if x.strip()]
+    import urllib.request, urllib.error
+    key = os.environ.get("RESEND_API_KEY", "")
+    sender = os.environ.get("REPORT_FROM", "")
+    to = [x.strip() for x in os.environ.get("REPORT_TO", "").split(",") if x.strip()]
+
+    # Diagnóstico claro de configuración (sin revelar la clave)
+    print(f"Remitente (REPORT_FROM): {sender!r}")
+    print(f"Destinatarios (REPORT_TO): {to}")
+    print(f"Clave (RESEND_API_KEY): {'definida, empieza con ' + key[:4] + '...' if key else 'NO DEFINIDA'}")
+    problemas = []
+    if not key:
+        problemas.append("Falta el secreto RESEND_API_KEY.")
+    elif not key.startswith("re_"):
+        problemas.append("RESEND_API_KEY no empieza con 're_' (¿está mal copiada?).")
+    if not sender:
+        problemas.append("Falta el secreto REPORT_FROM.")
+    if not to:
+        problemas.append("Falta el secreto REPORT_TO (o está vacío).")
+    if problemas:
+        print("PROBLEMAS DE CONFIGURACIÓN:")
+        for p in problemas:
+            print("  -", p)
+
     payload = json.dumps({"from": sender, "to": to, "subject": subject, "html": html}).encode()
     req = urllib.request.Request("https://api.resend.com/emails", data=payload, method="POST",
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
-    with urllib.request.urlopen(req) as r:
-        print("Enviado:", r.status, r.read().decode()[:200])
+    try:
+        with urllib.request.urlopen(req) as r:
+            print("Enviado:", r.status, r.read().decode()[:300])
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")
+        print(f"ERROR de Resend (HTTP {e.code}): {body}")
+        if e.code == 403:
+            print("\nCausa típica del 403:")
+            print("  1) La RESEND_API_KEY es inválida o no tiene permiso de envío.")
+            print("  2) El correo/dominio de REPORT_FROM no está verificado en Resend.")
+            print("     -> Para empezar, usa el remitente de prueba: onboarding@resend.dev")
+        raise SystemExit(1)
 
 def main():
     ap = argparse.ArgumentParser()
