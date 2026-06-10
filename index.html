@@ -29,6 +29,7 @@
     </div>
     <div class="tab-bar" id="tabBar" style="display:none">
       <button class="tab active" id="tab-scorecard" onclick="switchTab('scorecard')">Scorecard PXI</button>
+      <button class="tab" id="tab-evolution" onclick="switchTab('evolution')">Evolución semanal</button>
       <button class="tab" id="tab-flags" onclick="switchTab('flags')">Intervención inmediata</button>
       <button class="tab" id="tab-sampling" onclick="switchTab('sampling')">Muestreo manual</button>
     </div>
@@ -121,6 +122,17 @@
       <div class="charts-row one">
         <div class="fi-card chart-card"><div class="chart-title">Desglose por pilar — ¿qué pilar arrastra a cada agente?</div><div class="chart-wrap tall"><canvas id="chartPillars"></canvas></div></div>
       </div>
+    </div>
+
+    <!-- TAB: EVOLUTION -->
+    <div id="panel-evolution" style="display:none">
+      <div class="section-title">Evolución semanal del PXI</div>
+      <p class="section-note">Cada punto es el PXI de la semana (lunes a domingo). Sirve para ver si cada coordinadora está <strong>mejorando</strong>, <strong>estable</strong> o <strong>bajando</strong> respecto a su semana previa.</p>
+      <div class="charts-row one">
+        <div class="fi-card chart-card"><div class="chart-title">PXI por semana — por coordinadora</div><div class="chart-wrap tall"><canvas id="chartEvolution"></canvas></div></div>
+      </div>
+      <div class="section-title">Tendencia por coordinadora</div>
+      <div class="trend-grid" id="trendGrid"></div>
     </div>
 
     <!-- TAB: FLAGS -->

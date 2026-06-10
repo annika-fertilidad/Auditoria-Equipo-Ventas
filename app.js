@@ -235,6 +235,16 @@ function scoreConversation(c) {
 
   c.pillars = pillars;
 
+  // Week bucket (Monday-based) from the first dated message
+  const ts = chat.find(m => m.hora)?.hora || null;
+  if (ts) {
+    const d = new Date(ts);
+    const day = (d.getDay() + 6) % 7;          // 0 = Monday
+    d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - day);
+    c.weekStart = d.getTime();
+    c.weekLabel = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+  } else { c.weekStart = null; c.weekLabel = 'Sin fecha'; }
+
   // PXI for this conversation
   let wSum = 0, sSum = 0;
   for (const k of Object.keys(WEIGHTS)) {
@@ -304,8 +314,9 @@ function switchTab(tab) {
   activeTab = tab;
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
-  ['scorecard','flags','sampling'].forEach(p =>
+  ['scorecard','evolution','flags','sampling'].forEach(p =>
     document.getElementById('panel-' + p).style.display = p === tab ? '' : 'none');
+  if (tab === 'evolution') renderEvolution();
 }
 
 // ── Render ──────────────────────────────────────────────────────────────────
@@ -422,6 +433,102 @@ function baseOpts(max, suffix) {
       x: { ticks: { font: { size: 11 }, color: '#3D4E36' }, grid: { display: false } },
     },
   };
+}
+
+// ── Weekly evolution ─────────────────────────────────────────────────────────
+function pxiOf(convs) {
+  let wSum = 0, sSum = 0;
+  for (const k of Object.keys(WEIGHTS)) {
+    const appl = convs.filter(c => c.pillars[k].applies);
+    if (!appl.length) continue;
+    const pct = appl.filter(c => c.pillars[k].pass).length / appl.length * 100;
+    wSum += WEIGHTS[k]; sSum += WEIGHTS[k] * pct;
+  }
+  return wSum ? Math.round(sSum / wSum) : null;
+}
+
+function trendStatus(delta) {
+  if (delta === null) return { label: 'Sin comparación', cls: 'na', arrow: '·' };
+  if (delta >= 3)  return { label: 'Mejorando', cls: 'up',   arrow: '▲' };
+  if (delta <= -3) return { label: 'Bajando',   cls: 'down', arrow: '▼' };
+  return { label: 'Estable', cls: 'flat', arrow: '▬' };
+}
+
+function renderEvolution() {
+  // weeks sorted by date; only dated conversations
+  const dated = conversations.filter(c => c.weekStart !== null);
+  const weekMap = {};
+  dated.forEach(c => { weekMap[c.weekStart] = c.weekLabel; });
+  const weekKeys = Object.keys(weekMap).map(Number).sort((a, b) => a - b);
+  const weekLabels = weekKeys.map(k => 'Sem ' + weekMap[k]);
+
+  const agents = agentStats.filter(a => a.count >= 3).map(a => a.agent);
+  const PIL = ['#4A7B9D','#738D84','#C0574A','#6B9E6E','#8FA89F','#20281B','#C9A24B','#9333ea'];
+
+  // datasets per agent
+  const datasets = agents.map((agent, i) => {
+    const color = PIL[i % PIL.length];
+    return {
+      label: agent,
+      data: weekKeys.map(wk => pxiOf(dated.filter(c => c.weekStart === wk && c.agente === agent))),
+      borderColor: color, backgroundColor: color + '22',
+      tension: .3, spanGaps: true, pointRadius: 4, pointHoverRadius: 6, borderWidth: 2,
+    };
+  });
+  // clinic average line
+  datasets.push({
+    label: 'Promedio clínica',
+    data: weekKeys.map(wk => pxiOf(dated.filter(c => c.weekStart === wk))),
+    borderColor: '#20281B', borderDash: [6, 4], borderWidth: 2.5,
+    pointRadius: 3, tension: .3, spanGaps: true,
+  });
+
+  destroyChart('chartEvolution');
+  charts.chartEvolution = new Chart(document.getElementById('chartEvolution'), {
+    type: 'line',
+    data: { labels: weekLabels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12, color: '#3D4E36' } } },
+      scales: {
+        y: { min: 0, max: 100, ticks: { callback: v => v + '%', font: { size: 11 }, color: '#3D4E36' }, grid: { color: '#E8E7D8' } },
+        x: { ticks: { font: { size: 11 }, color: '#3D4E36' }, grid: { display: false } },
+      },
+    },
+  });
+
+  // per-agent trend cards
+  document.getElementById('trendGrid').innerHTML = agents.map(agent => {
+    const series = weekKeys.map(wk => ({
+      label: weekMap[wk],
+      pxi: pxiOf(dated.filter(c => c.weekStart === wk && c.agente === agent)),
+    })).filter(p => p.pxi !== null);
+
+    if (!series.length) return '';
+    const lastTwo = series.slice(-2);
+    const current = series[series.length - 1].pxi;
+    const delta = lastTwo.length === 2 ? current - lastTwo[0].pxi : null;
+    const st = trendStatus(delta);
+    const sparks = series.slice(-8).map(p => {
+      const h = Math.max(8, Math.round(p.pxi * 0.5));
+      const c = p.pxi >= 80 ? 'var(--ok)' : p.pxi >= 60 ? 'var(--warn)' : 'var(--bad)';
+      return `<div class="spark" style="height:${h}px;background:${c}" title="Sem ${p.label}: ${p.pxi}"></div>`;
+    }).join('');
+
+    return `<div class="fi-card trend-card">
+      <div class="trend-head">
+        <div class="trend-agent">${agent}</div>
+        <div class="trend-badge ${st.cls}">${st.arrow} ${st.label}</div>
+      </div>
+      <div class="trend-now">
+        <span class="trend-pxi ${pxiClass(current)}">${current}</span>
+        <span class="trend-meta">PXI esta semana${delta !== null ? ` · ${delta >= 0 ? '+' : ''}${delta} vs. semana previa` : ''}</span>
+      </div>
+      <div class="spark-row">${sparks}</div>
+      <div class="trend-weeks">${series.length} semana${series.length !== 1 ? 's' : ''} con datos</div>
+    </div>`;
+  }).join('') || '<div class="empty-state">No hay suficientes semanas con datos todavía.</div>';
 }
 
 // ── Flags queue ─────────────────────────────────────────────────────────────
