@@ -1,0 +1,38 @@
+name: Reportes PXI por correo
+
+on:
+  schedule:
+    - cron: "0 14 * * 1"   # cada lunes 08:00 CT  → reporte SEMANAL
+    - cron: "0 14 1 * *"   # día 1 de cada mes 08:00 CT → reporte MENSUAL
+  workflow_dispatch:
+    inputs:
+      period:
+        description: "Periodo a enviar"
+        required: true
+        default: week
+        type: choice
+        options: [week, month]
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install openpyxl
+      - id: period
+        run: |
+          if [ "${{ github.event.schedule }}" = "0 14 1 * *" ]; then
+            echo "value=month" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.inputs.period }}" ]; then
+            echo "value=${{ github.event.inputs.period }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=week" >> "$GITHUB_OUTPUT"
+          fi
+      - env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          REPORT_FROM: ${{ secrets.REPORT_FROM }}
+          REPORT_TO: ${{ secrets.REPORT_TO }}
+        run: python scripts/send_report.py --period "${{ steps.period.outputs.value }}"
