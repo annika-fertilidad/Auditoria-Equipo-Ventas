@@ -143,6 +143,25 @@ function buildConversations(rows) {
   });
 }
 
+// Working hours = 07:00–24:00 daily; off-hours = 00:00–07:00. The SLA clock
+// only runs during working hours (it pauses overnight).
+const WORK_START_H = 7;     // 7 a.m.
+const LATE_CUTOFF_H = 22;   // after 10 p.m. → can't meet a 2h SLA before midnight
+function workingMinutesBetween(t0, t1) {
+  if (!t0 || !t1 || t1 <= t0) return 0;
+  let total = 0;
+  let cur = new Date(t0);
+  while (cur.getTime() < t1) {
+    const dayStart = new Date(cur); dayStart.setHours(WORK_START_H, 0, 0, 0);
+    const nextMidnight = new Date(cur); nextMidnight.setHours(0, 0, 0, 0); nextMidnight.setDate(nextMidnight.getDate() + 1);
+    const winStart = Math.max(cur.getTime(), dayStart.getTime());
+    const winEnd = Math.min(t1, nextMidnight.getTime());
+    if (winEnd > winStart) total += winEnd - winStart;
+    cur = nextMidnight;
+  }
+  return Math.round(total / 60000);
+}
+
 // ── Score a single conversation ──────────────────────────────────────────────
 function needsReply(text) {
   const t = norm(text).trim();
@@ -223,14 +242,39 @@ function scoreConversation(c) {
   c.hasFrustration = hasFrustration;
   c.validated = validated;
 
+  // ── Response-time analysis (only counts time the LEAD is waiting on the agent) ──
+  // Walk the thread: a lead message that needs a reply starts the clock; the next
+  // agent message stops it. Off-hours minutes don't count (clock pauses overnight).
+  let maxWaitWorking = 0, pendingSince = null;
+  for (const m of chat) {
+    if (!m.hora) continue;
+    if (m.direccion === 'entrante') {
+      if (pendingSince === null && needsReply(m.contenido)) pendingSince = m.hora;
+    } else if (m.direccion === 'saliente' && pendingSince !== null) {
+      maxWaitWorking = Math.max(maxWaitWorking, workingMinutesBetween(pendingSince, m.hora));
+      pendingSince = null;
+    }
+  }
+  let agentSlow = maxWaitWorking > 120;   // agent took >2 working-hours to reply
+  let morningQueue = false;               // needs attention in the first morning shift
+  c.pendingHour = null;
+  if (pendingSince !== null) {            // thread ends with the lead still waiting
+    const h = new Date(pendingSince).getHours();
+    c.pendingHour = h;
+    if (h < WORK_START_H || h >= LATE_CUTOFF_H) morningQueue = true;  // off-hours or near shift end
+    else agentSlow = true;               // arrived with working time available, still unanswered
+  }
+  c.maxWaitWorking = maxWaitWorking;
+  c.agentSlow = agentSlow;
+  c.morningQueue = morningQueue;
+
   // ── Red flags ──
   c.flags = {
     r1: hasFrustration && !validated,
     r2: clinicalHit,
     r3: gavePrice && hasAny(norm(chat.map(m => m.contenido).join(' ')), TOK.highValue),
-    r4: (dropped && !chat.slice(chat.indexOf(last) + 1).some(m => m.direccion === 'saliente'))
-        || (firstRespMin !== null && firstRespMin > 1440)
-        || norm(c.tipificacion).includes('pendiente respuesta'),
+    r4: agentSlow,
+    r5: morningQueue,
   };
 
   c.pillars = pillars;
@@ -536,8 +580,15 @@ const FLAG_META = {
   r1: { label: 'R1 · Frustración no validada', color: '#C0574A' },
   r2: { label: 'R2 · Info clínica sin confirmación', color: '#C0574A' },
   r3: { label: 'R3 · Cotización alto valor sin supervisor', color: '#4A7B9D' },
-  r4: { label: 'R4 · Lead interesado >24h sin respuesta', color: '#738D84' },
+  r4: { label: 'R4 · Agente >2h en horario laboral', color: '#C9A24B' },
+  r5: { label: 'R5 · Pendiente para turno matutino', color: '#738D84' },
 };
+
+function fmtWait(min) {
+  if (min == null) return '';
+  const h = Math.floor(min / 60), m = min % 60;
+  return h ? `${h}h ${m}m` : `${m} min`;
+}
 
 function renderFlags() {
   // build filter options
@@ -578,7 +629,8 @@ function flagDetail(c, flag) {
   if (flag === 'r1') return 'El paciente expresó frustración y no se detectó una validación emocional.';
   if (flag === 'r2') return 'Se detectó una afirmación clínica fuera de alcance (tasa de éxito, garantía, etc.).';
   if (flag === 'r3') return 'Se compartió un precio y el hilo menciona FIV/in vitro/PGT/DGP/ovodonación — verificar involucramiento de supervisora.';
-  if (flag === 'r4') return `Lead con respuesta pendiente${c.firstRespMin != null ? ` (1ª respuesta: ${c.firstRespMin} min)` : ''}.`;
+  if (flag === 'r4') return `El agente tardó más de 2 h en responder a un lead dentro del horario laboral (7am–medianoche)${c.maxWaitWorking ? ` — espera máxima: ${fmtWait(c.maxWaitWorking)}` : ''}.`;
+  if (flag === 'r5') return `El lead escribió fuera de horario o cerca del cierre del turno y quedó sin responder — atender en el primer turno matutino.`;
   return '';
 }
 

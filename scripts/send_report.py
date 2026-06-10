@@ -57,7 +57,8 @@ TOK = {
 PILLAR_LABELS = {"p1":"P1 Velocidad","p2":"P2 Atención plena","p3":"P3 Valor antes de precio",
                  "p4":"P4 Lenguaje seguro","p5":"P5 Sensibilidad emocional"}
 FLAG_LABELS = {"r1":"R1 Frustración no validada","r2":"R2 Info clínica sin confirmación",
-               "r3":"R3 Alto valor sin supervisor","r4":"R4 Lead >24h sin respuesta"}
+               "r3":"R3 Alto valor sin supervisor","r4":"R4 Agente >2h en horario laboral",
+               "r5":"R5 Pendiente para turno matutino"}
 # Brand
 CREAM,IVORY,FOREST,SAGE,FSOFT,BORDER = "#F2F3E9","#F4F3E1","#20281B","#738D84","#3D4E36","#E8E7D8"
 OK,WARN,BAD = "#6B9E6E","#C9A24B","#C0574A"
@@ -116,6 +117,25 @@ def load(path):
         })
     return groups
 
+# Working hours = 07:00–24:00; off-hours = 00:00–07:00. SLA clock pauses off-hours.
+WORK_START_H = 7
+LATE_CUTOFF_H = 22  # after 10 p.m. a 2h SLA can't be met before midnight
+def working_minutes_between(t0, t1):
+    if not t0 or not t1 or t1 <= t0:
+        return 0
+    from datetime import timedelta
+    total = 0.0
+    cur = t0
+    while cur < t1:
+        day_start = cur.replace(hour=WORK_START_H, minute=0, second=0, microsecond=0)
+        next_midnight = (cur.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1))
+        win_start = max(cur, day_start)
+        win_end = min(t1, next_midnight)
+        if win_end > win_start:
+            total += (win_end - win_start).total_seconds()
+        cur = next_midnight
+    return round(total / 60)
+
 def score(num, msgs):
     chat = sorted([m for m in msgs if m["tipo"] == "mensaje"], key=lambda m: m["hora"] or datetime.min)
     inbound = [m for m in chat if m["direccion"] == "entrante"]
@@ -167,19 +187,38 @@ def score(num, msgs):
     pillars["p5"] = {"applies": emo or frus, "pass": validated if (emo or frus) else None}
 
     alltext = norm(" ".join(m["contenido"] for m in chat))
-    after_last_out = any(m["direccion"] == "saliente" for m in chat[chat.index(last)+1:])
+    # Response-time analysis: only count time the LEAD is waiting on the agent.
+    max_wait_working = 0
+    pending_since = None
+    for m in chat:
+        if not m["hora"]:
+            continue
+        if m["direccion"] == "entrante":
+            if pending_since is None and needs_reply(m["contenido"]):
+                pending_since = m["hora"]
+        elif m["direccion"] == "saliente" and pending_since is not None:
+            max_wait_working = max(max_wait_working, working_minutes_between(pending_since, m["hora"]))
+            pending_since = None
+    agent_slow = max_wait_working > 120
+    morning_queue = False
+    if pending_since is not None:  # thread ends with the lead still waiting
+        h = pending_since.hour
+        if h < WORK_START_H or h >= LATE_CUTOFF_H:
+            morning_queue = True   # off-hours or near shift end → first morning shift
+        else:
+            agent_slow = True      # arrived with working time available, still unanswered
     flags = {
         "r1": frus and not validated,
         "r2": clinical,
         "r3": gave_price and has_any(alltext, TOK["highValue"]),
-        "r4": (dropped and not after_last_out) or (frm is not None and frm > 1440) or
-              ("pendiente respuesta" in norm(next((m["tipificacion"] for m in msgs if m["tipificacion"]), ""))),
+        "r4": agent_slow,
+        "r5": morning_queue,
     }
     ts = next((m["hora"] for m in chat if m["hora"]), None)
     es_venta = next((m["es_venta"] for m in msgs if m["es_venta"]), "")
     url = next((m["url"] for m in msgs if m["url"]), "")
     return {"num": num, "agente": agente, "pillars": pillars, "flags": flags, "frm": frm,
-            "ts": ts, "es_venta": es_venta, "url": url}
+            "max_wait_working": max_wait_working, "ts": ts, "es_venta": es_venta, "url": url}
 
 def pxi_of(convs):
     w = s = 0
