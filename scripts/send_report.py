@@ -331,7 +331,9 @@ def send(subject, html):
 
     payload = json.dumps({"from": sender, "to": to, "subject": subject, "html": html}).encode()
     req = urllib.request.Request("https://api.resend.com/emails", data=payload, method="POST",
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+                 "User-Agent": "AuditoriaFI/1.0 (+https://annika-fertilidad.github.io/Auditoria-Equipo-Ventas/)",
+                 "Accept": "application/json"})
     try:
         with urllib.request.urlopen(req) as r:
             print("Enviado:", r.status, r.read().decode()[:300])
