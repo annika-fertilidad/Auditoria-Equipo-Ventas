@@ -1,7 +1,7 @@
 /* ── Patient Experience Index (PXI) · Scoring engine + dashboard ── */
 
 // ── Config ──────────────────────────────────────────────────────────────────
-const WEIGHTS = { p1: 20, p2: 25, p3: 15, p4: 25, p5: 15 };
+const WEIGHTS = { p1: 20, p2: 20, p3: 15, p4: 20, p5: 10, p6: 15 };
 
 const BOTS = ['fi bot','atom','api','agendamiento - instagram','agendamiento - facebook'];
 
@@ -36,8 +36,22 @@ const TOK = {
 
 const PILLAR_LABELS = {
   p1: 'P1 · Velocidad', p2: 'P2 · Atención plena', p3: 'P3 · Valor antes de precio',
-  p4: 'P4 · Lenguaje seguro', p5: 'P5 · Sensibilidad emocional',
+  p4: 'P4 · Lenguaje seguro', p5: 'P5 · Calidad de redacción', p6: 'P6 · Amabilidad y cortesía',
 };
+
+// Chat-speak / informal abbreviations that look unprofessional in writing.
+const CHATSPEAK = ['xq','xk','pq','xfa','xfis','porfa','porfis','tmb','tb','bn','tqm','xd','salu2',
+  'finde','ntp','nps','q','k','d','x','pa','pq','grax','graxias','holaa','siii','noo','aki','ke','komo'];
+// Courtesy / friendliness markers (normalized, accent-free).
+const GREET = ['hola','buen dia','buenos dias','buenas tardes','buenas noches','que tal','bienvenid',
+  'que gusto saludar','un gusto saludar'];
+const POLITE = ['por favor','porfavor','gracias','con gusto','con mucho gusto','claro que si','encantad',
+  'quedo atent','estoy para ayudar','estoy para servir','con todo gusto','sera un placer','que tenga',
+  'excelente dia','feliz dia','feliz tarde','un gusto','para servirte','no dude','cualquier duda',
+  'quedo a la orden','a la orden','quedo pendiente','con todo gusto te','sera un placer atender','permiteme',
+  'con gusto te','te comparto','te ayudo','te apoyo','te puedo ayudar','quedo al pendiente','estamos al pendiente',
+  'estamos para','no te preocupes','no hay problema','con todo el gusto','sera un gusto','con cariño','un abrazo',
+  'que tengas','saludos cordiales','muchas gracias','mil gracias','claro que','por nada','estamos en contacto'];
 
 // ── State ──────────────────────────────────────────────────────────────────
 let conversations = [];
@@ -251,17 +265,53 @@ function scoreConversation(c) {
   c.clinicalHit = clinicalHit;
   c.prohibitedHit = prohibitedHit;
 
-  // ── P5 Emotional Sensitivity ──
-  const hasEmotion = hasAny(patientText, TOK.emotion);
+  // (Emotional sensitivity now lives on as the R1 alert, below.)
   const hasFrustration = hasAny(patientText, TOK.frustration);
   const validated = hasAny(agentText, TOK.validation);
-  if (hasEmotion || hasFrustration) {
-    pillars.p5 = { applies: true, pass: validated };
+  c.hasFrustration = hasFrustration;
+  c.validated = validated;
+
+  // ── P5 Writing Quality ── (style heuristic on the agent's own messages)
+  // Judge only "substantial" messages (≥3 words) so short "¡Hola! 😊" replies aren't penalized.
+  const substantial = humanOut.filter(m => {
+    const raw = (m.contenido || '').trim();
+    return raw.replace(/\s+/g, ' ').split(' ').length >= 3 && raw.replace(/[^a-záéíóúñ]/gi, '').length >= 12;
+  });
+  const writingIssues = [];
+  let badMsgs = 0;
+  for (const m of substantial) {
+    const raw = (m.contenido || '').trim();
+    const letters = raw.replace(/[^a-záéíóúñ]/gi, '');
+    const issues = [];
+    // 1) Sentence doesn't start with a capital letter
+    const firstLetter = raw.match(/[a-záéíóúñ]/i);
+    if (firstLetter && firstLetter[0] === firstLetter[0].toLowerCase()) issues.push('mayúscula inicial');
+    // 2) Chat-speak abbreviations (whole-word match, punctuation stripped)
+    const tokN = ' ' + norm(raw).replace(/[^a-z0-9ñ ]/gi, ' ').replace(/\s+/g, ' ').trim() + ' ';
+    if (CHATSPEAK.some(w => tokN.includes(' ' + w + ' '))) issues.push('abreviaturas informales');
+    // 3) ALL-CAPS shouting
+    if (letters.length >= 8) {
+      const ups = (raw.match(/[A-ZÁÉÍÓÚÑ]/g) || []).length;
+      if (ups / letters.length > 0.8) issues.push('mayúsculas sostenidas');
+    }
+    // 4) Question mark without the opening ¿
+    if (raw.includes('?') && !raw.includes('¿')) issues.push('falta ¿ de apertura');
+    if (issues.length) { badMsgs++; issues.forEach(i => { if (!writingIssues.includes(i)) writingIssues.push(i); }); }
+  }
+  if (substantial.length >= 1) {
+    pillars.p5 = { applies: true, pass: (badMsgs / substantial.length) <= 0.2 };
   } else {
     pillars.p5 = { applies: false, pass: null };
   }
-  c.hasFrustration = hasFrustration;
-  c.validated = validated;
+  c.writingIssues = writingIssues;
+  c.writingBadRate = substantial.length ? Math.round(badMsgs / substantial.length * 100) : null;
+
+  // ── P6 Friendliness & Courtesy ── (always applies)
+  const greeted = hasAny(agentText, GREET);
+  const polite = hasAny(agentText, POLITE) || validated;
+  pillars.p6 = { applies: true, pass: greeted && polite };
+  c.greeted = greeted;
+  c.polite = polite;
 
   // ── Response-time analysis (only counts time the LEAD is waiting on the agent) ──
   // Walk the thread: a lead message that needs a reply starts the clock; the next

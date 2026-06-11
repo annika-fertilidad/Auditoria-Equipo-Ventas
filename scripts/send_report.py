@@ -24,7 +24,7 @@ except ImportError:
     sys.exit("Falta openpyxl (pip install openpyxl)")
 
 # ── Config (igual que el dashboard) ──
-WEIGHTS = {"p1": 20, "p2": 25, "p3": 15, "p4": 25, "p5": 15}
+WEIGHTS = {"p1": 20, "p2": 20, "p3": 15, "p4": 20, "p5": 10, "p6": 15}
 BOTS = {"fi bot", "atom", "api", "agendamiento - instagram", "agendamiento - facebook"}
 TOK = {
  "request": ["precio","costo","cuanto","como","cuando","donde","cual","puedo","pueden","podria",
@@ -54,8 +54,19 @@ TOK = {
    "siento mucho","lamento","una disculpa","que valiente","estamos contigo","estamos aqui","aqui estamos"],
  "highValue": ["fiv","in vitro","pgt","dgp","ovodonacion"],
 }
+CHATSPEAK = ["xq","xk","pq","xfa","xfis","porfa","porfis","tmb","tb","bn","tqm","xd","salu2",
+  "finde","ntp","nps","q","k","d","x","pa","grax","graxias","holaa","siii","noo","aki","ke","komo"]
+GREET = ["hola","buen dia","buenos dias","buenas tardes","buenas noches","que tal","bienvenid",
+  "que gusto saludar","un gusto saludar"]
+POLITE = ["por favor","porfavor","gracias","con gusto","con mucho gusto","claro que si","encantad",
+  "quedo atent","estoy para ayudar","estoy para servir","con todo gusto","sera un placer","que tenga",
+  "excelente dia","feliz dia","feliz tarde","un gusto","para servirte","no dude","cualquier duda",
+  "quedo a la orden","a la orden","quedo pendiente","permiteme","con gusto te","te comparto","te ayudo",
+  "te apoyo","te puedo ayudar","quedo al pendiente","estamos al pendiente","estamos para","no te preocupes",
+  "no hay problema","con todo el gusto","sera un gusto","con cariño","un abrazo","que tengas",
+  "saludos cordiales","muchas gracias","mil gracias","claro que","por nada","estamos en contacto"]
 PILLAR_LABELS = {"p1":"P1 Velocidad","p2":"P2 Atención plena","p3":"P3 Valor antes de precio",
-                 "p4":"P4 Lenguaje seguro","p5":"P5 Sensibilidad emocional"}
+                 "p4":"P4 Lenguaje seguro","p5":"P5 Calidad de redacción","p6":"P6 Amabilidad y cortesía"}
 FLAG_LABELS = {"r1":"R1 Frustración no validada","r2":"R2 Info clínica sin confirmación",
                "r3":"R3 Alto valor sin supervisor","r4":"R4 Agente >2h en horario laboral",
                "r5":"R5 Pendiente para turno matutino"}
@@ -203,9 +214,34 @@ def score(num, msgs):
     prohibited = has_any(atext, TOK["prohibited"])
     pillars["p4"] = {"applies": True, "pass": not (clinical or prohibited)}
 
-    emo = has_any(ptext, TOK["emotion"]); frus = has_any(ptext, TOK["frustration"])
+    frus = has_any(ptext, TOK["frustration"])
     validated = has_any(atext, TOK["validation"])
-    pillars["p5"] = {"applies": emo or frus, "pass": validated if (emo or frus) else None}
+
+    # P5 Writing Quality — style heuristic on the agent's own substantial messages.
+    substantial = [m for m in out
+                   if len(re.sub(r"\s+", " ", (m["contenido"] or "").strip()).split(" ")) >= 3
+                   and len(re.sub(r"[^a-záéíóúñ]", "", m["contenido"] or "", flags=re.I)) >= 12]
+    bad = 0
+    for m in substantial:
+        raw = (m["contenido"] or "").strip()
+        letters = re.sub(r"[^a-záéíóúñ]", "", raw, flags=re.I)
+        issue = False
+        fl = re.search(r"[a-záéíóúñ]", raw, re.I)
+        if fl and fl.group(0).islower(): issue = True
+        tok = " " + re.sub(r"\s+", " ", re.sub(r"[^a-z0-9ñ ]", " ", norm(raw), flags=re.I)).strip() + " "
+        if any((" " + w + " ") in tok for w in CHATSPEAK): issue = True
+        if len(letters) >= 8:
+            ups = len(re.findall(r"[A-ZÁÉÍÓÚÑ]", raw))
+            if ups / len(letters) > 0.8: issue = True
+        if "?" in raw and "¿" not in raw: issue = True
+        if issue: bad += 1
+    pillars["p5"] = ({"applies": True, "pass": (bad / len(substantial)) <= 0.2}
+                     if substantial else {"applies": False, "pass": None})
+
+    # P6 Friendliness & Courtesy.
+    greeted = has_any(atext, GREET)
+    polite = has_any(atext, POLITE) or validated
+    pillars["p6"] = {"applies": True, "pass": greeted and polite}
 
     alltext = norm(" ".join(m["contenido"] for m in chat))
     # Response-time analysis: only count time the LEAD is waiting on the agent.
