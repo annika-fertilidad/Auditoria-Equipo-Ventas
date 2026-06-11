@@ -179,18 +179,40 @@ function scoreConversation(c) {
   const patientText = norm(inbound.map(m => m.contenido).join('  ||  '));
   const pillars = {};
 
-  // ── P1 Speed ──
+  // ── P1 Speed ── (working hours 7am–midnight; clock pauses overnight)
+  // Two-tier SLA: first reply to the lead's opening message must be < 2 min;
+  // every reply afterwards must be within 15 min.
   const firstIn = inbound[0]?.hora;
   const firstReply = humanOut.find(m => m.hora && firstIn && m.hora >= firstIn)?.hora;
-  let firstRespMin = null;
-  if (firstIn && firstReply) firstRespMin = Math.round((firstReply - firstIn) / 60000);
-  if (firstRespMin !== null && firstRespMin <= 2880) {
-    pillars.p1 = { applies: true, pass: firstRespMin <= 15 };
+  let firstRespMin = (firstIn && firstReply) ? workingMinutesBetween(firstIn, firstReply) : null;
+
+  // Subsequent reply gaps (after the first reply), in working minutes.
+  let maxSubRespMin = null;
+  let pSince = null, seenFirstReply = false;
+  for (const m of chat) {
+    if (!m.hora) continue;
+    if (m.direccion === 'entrante') {
+      if (pSince === null && needsReply(m.contenido)) pSince = m.hora;
+    } else if (m.direccion === 'saliente') {
+      if (!seenFirstReply) { seenFirstReply = true; pSince = null; continue; }
+      if (pSince !== null) {
+        const wm = workingMinutesBetween(pSince, m.hora);
+        maxSubRespMin = maxSubRespMin === null ? wm : Math.max(maxSubRespMin, wm);
+        pSince = null;
+      }
+    }
+  }
+
+  const firstOK = firstRespMin !== null && firstRespMin <= 2;
+  const subOK = maxSubRespMin === null || maxSubRespMin <= 15;
+  if (firstRespMin !== null) {
+    pillars.p1 = { applies: true, pass: firstOK && subOK };
   } else {
     pillars.p1 = { applies: false, pass: null };
   }
-  c.firstRespMin = (firstRespMin !== null && firstRespMin <= 2880) ? firstRespMin : null;
-  c.repliedUnder2 = c.firstRespMin !== null && c.firstRespMin <= 2;
+  c.firstRespMin = firstRespMin;          // working minutes to first reply
+  c.maxSubRespMin = maxSubRespMin;        // worst subsequent reply gap (working min)
+  c.repliedUnder2 = firstRespMin !== null && firstRespMin <= 2;
 
   // ── P2 Full Attention ── (always applies; FAIL if patient left hanging)
   const last = chat[chat.length - 1];
@@ -381,7 +403,7 @@ function renderKPIs() {
     ${kpi('Conversaciones auditadas', clinic.convs, '')}
     ${kpi('PXI de la clínica', (clinic.pxi ?? '—'), '/100', pxiClass(clinic.pxi))}
     ${kpi('Mediana 1ª respuesta', clinic.medianResp != null ? clinic.medianResp + ' min' : '—', '')}
-    ${kpi('SLA ≤15 min', clinic.slaPct != null ? clinic.slaPct + '%' : '—', '', pxiClass(clinic.slaPct))}
+    ${kpi('Cumple SLA velocidad', clinic.slaPct != null ? clinic.slaPct + '%' : '—', '', pxiClass(clinic.slaPct))}
     ${kpi('Citas agendadas', clinic.appts, '')}
     ${kpi('Alertas abiertas', clinic.flags, '', clinic.flags > 0 ? 'danger' : 'success')}
   `;
@@ -417,7 +439,7 @@ function renderScorecards() {
       </div>
       <div class="pillar-grid">${pillars}</div>
       <div class="sc-foot">
-        <span>SLA ≤15m: <strong>${a.slaPct ?? '—'}%</strong></span>
+        <span>SLA vel.: <strong>${a.slaPct ?? '—'}%</strong></span>
         <span>Mediana: <strong>${a.medianResp != null ? a.medianResp + 'm' : '—'}</strong></span>
         <span class="${a.flags > 0 ? 'flag-warn' : ''}">Alertas: <strong>${a.flags}</strong></span>
       </div>
@@ -461,7 +483,7 @@ function renderCharts() {
   destroyChart('chartSla');
   charts.chartSla = new Chart(document.getElementById('chartSla'), {
     type: 'bar',
-    data: { labels, datasets: [{ label: 'SLA ≤15 min', data: ranked.map(a => a.slaPct),
+    data: { labels, datasets: [{ label: 'Cumple SLA velocidad', data: ranked.map(a => a.slaPct),
       backgroundColor: '#6B9E6E', borderRadius: 6 }] },
     options: baseOpts(100, '%'),
   });

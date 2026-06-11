@@ -148,10 +148,32 @@ def score(num, msgs):
     ptext = norm("  ".join(m["contenido"] for m in inbound))
     pillars = {}
 
+    # P1 Speed (working hours 7am–midnight; clock pauses overnight).
+    # Two-tier SLA: 1st reply < 2 min; every later reply within 15 min.
     first_in = inbound[0]["hora"]
     first_reply = next((m["hora"] for m in out if m["hora"] and first_in and m["hora"] >= first_in), None)
-    frm = round((first_reply - first_in).total_seconds() / 60) if (first_in and first_reply) else None
-    pillars["p1"] = {"applies": frm is not None and frm <= 2880, "pass": (frm is not None and frm <= 15)}
+    frm = working_minutes_between(first_in, first_reply) if (first_in and first_reply) else None
+
+    max_sub = None
+    p_since = None
+    seen_first = False
+    for m in chat:
+        if not m["hora"]:
+            continue
+        if m["direccion"] == "entrante":
+            if p_since is None and needs_reply(m["contenido"]):
+                p_since = m["hora"]
+        elif m["direccion"] == "saliente":
+            if not seen_first:
+                seen_first = True; p_since = None; continue
+            if p_since is not None:
+                wm = working_minutes_between(p_since, m["hora"])
+                max_sub = wm if max_sub is None else max(max_sub, wm)
+                p_since = None
+
+    first_ok = frm is not None and frm <= 2
+    sub_ok = max_sub is None or max_sub <= 15
+    pillars["p1"] = {"applies": frm is not None, "pass": (first_ok and sub_ok)}
 
     last = chat[-1]
     dropped = last["direccion"] == "entrante" and needs_reply(last["contenido"])
@@ -314,7 +336,7 @@ def build_html(period_label, cur, prev, errors):
   <table width="100%" cellspacing="8" cellpadding="0"><tr>
     {kpi("PXI clínica", (str(team_pxi) if team_pxi is not None else "—"))}
     {kpi("Conversaciones", len(all_cur))}
-    {kpi("SLA ≤15 min", (f"{sla}%" if sla is not None else "—"))}
+    {kpi("Cumple SLA velocidad", (f"{sla}%" if sla is not None else "—"))}
     {kpi("Citas", citas)}
     {kpi("Alertas", n_flags)}
   </tr></table>

@@ -74,9 +74,9 @@
 
           <div class="guide-card" style="--pc:#4A7B9D">
             <div class="guide-head"><span class="guide-code">P1</span><span class="guide-name">Velocidad</span><span class="guide-weight">20%</span></div>
-            <div class="guide-row"><b>Qué mide:</b> Qué tan rápido respondió el agente al primer mensaje del paciente.</div>
-            <div class="guide-row"><b>Cómo se mide:</b> Tiempo entre el primer mensaje del paciente y la primera respuesta humana.</div>
-            <div class="guide-row"><b>Cumple si:</b> respondió en <b>15 minutos o menos</b>.</div>
+            <div class="guide-row"><b>Qué mide:</b> Qué tan rápido responde el agente, tanto al primer contacto como durante toda la conversación.</div>
+            <div class="guide-row"><b>Cómo se mide:</b> Tiempo de respuesta contado solo dentro del horario del call center (7am–medianoche); el reloj se pausa fuera de ese horario.</div>
+            <div class="guide-row"><b>Cumple si:</b> respondió al <b>primer mensaje en menos de 2 minutos</b> y <b>cada respuesta posterior en 15 minutos o menos</b>.</div>
           </div>
 
           <div class="guide-card" style="--pc:#738D84">
@@ -117,7 +117,7 @@
 
       <div class="charts-row">
         <div class="fi-card chart-card"><div class="chart-title">PXI por agente</div><div class="chart-wrap"><canvas id="chartPxi"></canvas></div></div>
-        <div class="fi-card chart-card"><div class="chart-title">SLA ≤15 min por agente</div><div class="chart-wrap"><canvas id="chartSla"></canvas></div></div>
+        <div class="fi-card chart-card"><div class="chart-title">Cumplimiento SLA de velocidad por agente</div><div class="chart-wrap"><canvas id="chartSla"></canvas></div></div>
       </div>
       <div class="charts-row one">
         <div class="fi-card chart-card"><div class="chart-title">Desglose por pilar — ¿qué pilar arrastra a cada agente?</div><div class="chart-wrap tall"><canvas id="chartPillars"></canvas></div></div>
