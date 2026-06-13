@@ -53,10 +53,27 @@ const POLITE = ['por favor','porfavor','gracias','con gusto','con mucho gusto','
   'estamos para','no te preocupes','no hay problema','con todo el gusto','sera un gusto','con cariño','un abrazo',
   'que tengas','saludos cordiales','muchas gracias','mil gracias','claro que','por nada','estamos en contacto'];
 
+const MONTHS = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto',
+  'septiembre','octubre','noviembre','diciembre'];
+
+// Nombres que aparecen en la columna `agente` pero NO son coordinadoras de ventas
+// (cuentas de sistema / contactos / personal ajeno al equipo). Se excluyen de
+// todas las vistas. Comparación normalizada (sin acentos, minúsculas, sin dobles
+// espacios) para que no importe cómo venga escrito en el export.
+const NON_AGENTS = ['hola fertilidad', 'mariana sanchez'];
+const normAgent = s => String(s || '')
+  .normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .replace(/\s+/g, ' ').trim().toLowerCase();
+const isNonAgent = name => NON_AGENTS.includes(normAgent(name));
+
 // ── State ──────────────────────────────────────────────────────────────────
-let conversations = [];
+let conversations = [];      // full accumulated history
+let weekConversations = [];  // current-week slice (scorecard / flags / sampling)
 let agentStats = [];
 let clinic = {};
+let latestDayTs = null;      // most recent dated day
+let currentWeekStart = null; // Monday of the most recent week
+let currentMonthStart = null;// 1st of the most recent month
 let activeTab = 'scorecard';
 let flagFilterAgent = '', flagFilterType = '';
 
@@ -149,6 +166,7 @@ function buildConversations(rows) {
     humanOut.forEach(m => { const n = cleanName(m.remitente); if (n) outCounts[n] = (outCounts[n] || 0) + 1; });
     const topOut = Object.entries(outCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
     const agente = agenteCol || topOut || 'Sin asignar';
+    if (isNonAgent(agente)) return; // cuenta de sistema / no es coordinadora
     const url = msgs.find(m => m.url)?.url || '';
     const tipificacion = msgs.find(m => m.tipificacion)?.tipificacion || '';
     const es_venta = msgs.find(m => m.es_venta)?.es_venta || '';
@@ -350,15 +368,23 @@ function scoreConversation(c) {
 
   c.pillars = pillars;
 
-  // Week bucket (Monday-based) from the first dated message
+  // Day + week buckets from the first dated message (a chat belongs to the day
+  // the lead first wrote — stable even if the conversation continues later).
   const ts = chat.find(m => m.hora)?.hora || null;
   if (ts) {
+    const dd = new Date(ts); dd.setHours(0, 0, 0, 0);
+    c.dayTs = dd.getTime();
+    c.dayLabel = `${String(dd.getDate()).padStart(2,'0')}/${String(dd.getMonth()+1).padStart(2,'0')}`;
     const d = new Date(ts);
     const day = (d.getDay() + 6) % 7;          // 0 = Monday
     d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - day);
     c.weekStart = d.getTime();
     c.weekLabel = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
-  } else { c.weekStart = null; c.weekLabel = 'Sin fecha'; }
+    const md = new Date(ts);
+    const mo = new Date(md.getFullYear(), md.getMonth(), 1);
+    c.monthStart = mo.getTime();
+    c.monthLabel = MONTHS[md.getMonth()] + ' ' + md.getFullYear();
+  } else { c.dayTs = null; c.dayLabel = 'Sin fecha'; c.weekStart = null; c.weekLabel = 'Sin fecha'; c.monthStart = null; c.monthLabel = 'Sin fecha'; }
 
   // PXI for this conversation
   let wSum = 0, sSum = 0;
@@ -378,8 +404,24 @@ function median(arr) {
 }
 
 function aggregate() {
+  // Current period = the week (and latest day) of the most recent dated chat.
+  // Scoping the scorecard to the current week means each daily upload accumulates
+  // toward the week, and an agent on a rest day still shows their weekly score.
+  const dated = conversations.filter(c => c.dayTs != null);
+  latestDayTs = dated.length ? Math.max(...dated.map(c => c.dayTs)) : null;
+  currentWeekStart = dated.length ? Math.max(...dated.map(c => c.weekStart)) : null;
+  currentMonthStart = dated.length ? Math.max(...dated.map(c => c.monthStart)) : null;
+  weekConversations = currentWeekStart != null
+    ? conversations.filter(c => c.weekStart === currentWeekStart)
+    : conversations.slice();
+  const monthConversations = currentMonthStart != null
+    ? conversations.filter(c => c.monthStart === currentMonthStart)
+    : conversations.slice();
+  const monthByAgent = {};
+  monthConversations.forEach(c => (monthByAgent[c.agente] ||= []).push(c));
+
   const byAgent = {};
-  conversations.forEach(c => (byAgent[c.agente] ||= []).push(c));
+  weekConversations.forEach(c => (byAgent[c.agente] ||= []).push(c));
 
   agentStats = Object.entries(byAgent).map(([agent, convs]) => {
     const pillarPct = {};
@@ -388,12 +430,22 @@ function aggregate() {
       const pass = appl.filter(c => c.pillars[k].pass);
       pillarPct[k] = appl.length ? Math.round(pass.length / appl.length * 100) : null;
     }
-    // PXI = weighted avg of available pillarPct, renormalized
+    // Weekly PXI = weighted avg of available pillarPct, renormalized
     let wSum = 0, sSum = 0;
     for (const k of Object.keys(WEIGHTS)) {
       if (pillarPct[k] !== null) { wSum += WEIGHTS[k]; sSum += WEIGHTS[k] * pillarPct[k]; }
     }
     const pxi = wSum ? Math.round(sSum / wSum) : null;
+
+    // Daily PXI = today's slice only; null (= rest day) if no chats that day.
+    const dayConvs = convs.filter(c => c.dayTs === latestDayTs);
+    const dailyPxi = pxiOf(dayConvs);
+    const restDay = dayConvs.length === 0;
+
+    // Monthly PXI = the agent's whole current-month slice (full history, not the week).
+    const monthConvs = monthByAgent[agent] || [];
+    const monthlyPxi = pxiOf(monthConvs);
+    const monthCount = monthConvs.length;
 
     const respTimes = convs.map(c => c.firstRespMin).filter(v => v !== null);
     const slaAppl = convs.filter(c => c.pillars.p1.applies);
@@ -402,6 +454,8 @@ function aggregate() {
 
     return {
       agent, count: convs.length, pillarPct, pxi,
+      dailyPxi, restDay, dayCount: dayConvs.length,
+      monthlyPxi, monthCount,
       medianResp: median(respTimes),
       slaPct: slaAppl.length ? Math.round(slaPass.length / slaAppl.length * 100) : null,
       under2Pct: respTimes.length ? Math.round(respTimes.filter(v => v <= 2).length / respTimes.length * 100) : null,
@@ -411,16 +465,24 @@ function aggregate() {
   }).sort((a, b) => (b.pxi ?? -1) - (a.pxi ?? -1));
 
   const ranked = agentStats.filter(a => a.count >= 3);
-  const allResp = conversations.map(c => c.firstRespMin).filter(v => v !== null);
-  const slaAppl = conversations.filter(c => c.pillars.p1.applies);
+  const allResp = weekConversations.map(c => c.firstRespMin).filter(v => v !== null);
+  const slaAppl = weekConversations.filter(c => c.pillars.p1.applies);
   const slaPass = slaAppl.filter(c => c.pillars.p1.pass);
+  const dayConvs = weekConversations.filter(c => c.dayTs === latestDayTs);
   clinic = {
-    convs: conversations.length,
+    convs: weekConversations.length,
+    dayConvs: dayConvs.length,
     pxi: ranked.length ? Math.round(ranked.reduce((s, a) => s + a.pxi * a.count, 0) / ranked.reduce((s, a) => s + a.count, 0)) : null,
+    dayPxi: pxiOf(dayConvs),
     medianResp: median(allResp),
     slaPct: slaAppl.length ? Math.round(slaPass.length / slaAppl.length * 100) : null,
-    appts: conversations.filter(c => c.es_venta === 'si').length,
-    flags: conversations.reduce((n, c) => n + Object.values(c.flags).filter(Boolean).length, 0),
+    appts: weekConversations.filter(c => c.es_venta === 'si').length,
+    flags: weekConversations.reduce((n, c) => n + Object.values(c.flags).filter(Boolean).length, 0),
+    weekLabel: currentWeekStart != null ? (conversations.find(c => c.weekStart === currentWeekStart)?.weekLabel || null) : null,
+    dayLabel: latestDayTs != null ? (conversations.find(c => c.dayTs === latestDayTs)?.dayLabel || null) : null,
+    monthPxi: pxiOf(monthConversations),
+    monthConvs: monthConversations.length,
+    monthLabel: currentMonthStart != null ? (conversations.find(c => c.monthStart === currentMonthStart)?.monthLabel || null) : null,
   };
 }
 
@@ -450,11 +512,12 @@ function pxiClass(v) { return v == null ? '' : v >= 80 ? 'success' : v >= 60 ? '
 
 function renderKPIs() {
   document.getElementById('kpiGrid').innerHTML = `
-    ${kpi('Conversaciones auditadas', clinic.convs, '')}
-    ${kpi('PXI de la clínica', (clinic.pxi ?? '—'), '/100', pxiClass(clinic.pxi))}
-    ${kpi('Mediana 1ª respuesta', clinic.medianResp != null ? clinic.medianResp + ' min' : '—', '')}
+    ${kpi('PXI del mes' + (clinic.monthLabel ? ' · ' + clinic.monthLabel : ''), (clinic.monthPxi ?? '—'), '/100', pxiClass(clinic.monthPxi))}
+    ${kpi('PXI de la clínica · semana' + (clinic.weekLabel ? ' ' + clinic.weekLabel : ''), (clinic.pxi ?? '—'), '/100', pxiClass(clinic.pxi))}
+    ${kpi('PXI de hoy' + (clinic.dayLabel ? ' · ' + clinic.dayLabel : ''), (clinic.dayPxi ?? '—'), '/100', pxiClass(clinic.dayPxi))}
+    ${kpi('Conversaciones · mes', clinic.monthConvs, clinic.convs != null ? ` · ${clinic.convs} esta semana` : '')}
     ${kpi('Cumple SLA velocidad', clinic.slaPct != null ? clinic.slaPct + '%' : '—', '', pxiClass(clinic.slaPct))}
-    ${kpi('Citas agendadas', clinic.appts, '')}
+    ${kpi('Citas agendadas (semana)', clinic.appts, '')}
     ${kpi('Alertas abiertas', clinic.flags, '', clinic.flags > 0 ? 'danger' : 'success')}
   `;
 }
@@ -479,13 +542,20 @@ function renderScorecards() {
         <div class="pillar-pct">${v == null ? 'N/A' : v + '%'}</div>
       </div>`;
     }).join('');
+    const dcls = a.restDay ? 'na' : pxiClass(a.dailyPxi);
+    const dayChip = a.restDay
+      ? `<span class="sc-day na">Descanso hoy</span>`
+      : `<span class="sc-day ${dcls}">Hoy: <strong>${a.dailyPxi ?? '—'}</strong> · ${a.dayCount} conv.</span>`;
+    const mcls = a.monthlyPxi == null ? 'na' : pxiClass(a.monthlyPxi);
+    const monthChip = `<span class="sc-day ${mcls}">Mes: <strong>${a.monthlyPxi ?? '—'}</strong> · ${a.monthCount} conv.</span>`;
     return `<div class="fi-card scorecard">
       <div class="sc-head">
         <div>
           <div class="sc-agent">${a.agent}</div>
-          <div class="sc-sub">${a.count} conversaciones · ${a.appts} cita${a.appts !== 1 ? 's' : ''}</div>
+          <div class="sc-sub">${a.count} conv. esta semana · ${a.appts} cita${a.appts !== 1 ? 's' : ''}</div>
+          <div class="sc-dayrow">${dayChip} ${monthChip}</div>
         </div>
-        <div class="sc-pxi ${cls}">${a.pxi ?? '—'}<span>PXI</span></div>
+        <div class="sc-pxi ${cls}">${a.pxi ?? '—'}<span>PXI semana</span></div>
       </div>
       <div class="pillar-grid">${pillars}</div>
       <div class="sc-foot">
@@ -574,10 +644,16 @@ function renderEvolution() {
   const dated = conversations.filter(c => c.weekStart !== null);
   const weekMap = {};
   dated.forEach(c => { weekMap[c.weekStart] = c.weekLabel; });
-  const weekKeys = Object.keys(weekMap).map(Number).sort((a, b) => a - b);
+  // Cap the chart to the most recent 12 weeks (history can span years).
+  const weekKeys = Object.keys(weekMap).map(Number).sort((a, b) => a - b).slice(-12);
   const weekLabels = weekKeys.map(k => 'Sem ' + weekMap[k]);
+  const weekKeySet = new Set(weekKeys);
+  const datedRecent = dated.filter(c => weekKeySet.has(c.weekStart));
 
-  const agents = agentStats.filter(a => a.count >= 3).map(a => a.agent);
+  // Derive agents from the visible window (those active in the last 12 weeks, >=3 convs).
+  const allByAgent = {};
+  datedRecent.forEach(c => (allByAgent[c.agente] ||= []).push(c));
+  const agents = Object.entries(allByAgent).filter(([, cs]) => cs.length >= 3).map(([a]) => a);
   const PIL = ['#4A7B9D','#738D84','#C0574A','#6B9E6E','#8FA89F','#20281B','#C9A24B','#9333ea'];
 
   // datasets per agent
@@ -665,13 +741,13 @@ function renderFlags() {
   // build filter options
   const aSel = document.getElementById('flagAgent');
   if (aSel.options.length <= 1) {
-    [...new Set(conversations.map(c => c.agente))].sort().forEach(a => {
+    [...new Set(weekConversations.map(c => c.agente))].sort().forEach(a => {
       const o = document.createElement('option'); o.value = o.textContent = a; aSel.appendChild(o);
     });
   }
 
   const items = [];
-  conversations.forEach(c => {
+  weekConversations.forEach(c => {
     Object.keys(c.flags).forEach(f => {
       if (c.flags[f]) items.push({ conv: c, flag: f });
     });
@@ -721,7 +797,7 @@ function sampleKey(num, idx) { return `pxi_sample_${num}_${idx}`; }
 
 function renderSampling() {
   const byAgent = {};
-  conversations.forEach(c => (byAgent[c.agente] ||= []).push(c));
+  weekConversations.forEach(c => (byAgent[c.agente] ||= []).push(c));
 
   const html = Object.entries(byAgent).map(([agent, convs]) => {
     // deterministic sample of up to 3
@@ -768,7 +844,7 @@ function downloadTemplate() {
 
 // ── Auto-load embedded data ──────────────────────────────────────────────────
 async function autoLoad(force) {
-  for (const name of ['datos.xlsx', 'datos.csv']) {
+  for (const name of ['datos_historico.csv', 'datos.xlsx', 'datos.csv']) {
     try {
       const res = await fetch(name, { cache: 'no-store' });
       if (!res.ok) continue;

@@ -25,6 +25,10 @@ except ImportError:
 
 # ── Config (igual que el dashboard) ──
 WEIGHTS = {"p1": 20, "p2": 20, "p3": 15, "p4": 20, "p5": 10, "p6": 15}
+# Nombres en la columna `agente` que NO son coordinadoras (cuentas de sistema /
+# contactos). Se excluyen de los reportes. Comparación normalizada (sin acentos,
+# minúsculas) — igual que en el dashboard.
+NON_AGENTS = {"hola fertilidad", "mariana sanchez"}
 BOTS = {"fi bot", "atom", "api", "agendamiento - instagram", "agendamiento - facebook"}
 TOK = {
  "request": ["precio","costo","cuanto","como","cuando","donde","cual","puedo","pueden","podria",
@@ -105,7 +109,39 @@ def needs_reply(text):
 
 PRICE_RE = re.compile(r"\$\s?\d|\b\d{3,}\b\s*(pesos|mxn|mil)|cuesta|tiene un costo|el costo es|el precio es|son \$", re.I)
 
+def _emit(groups, g, r):
+    num = str(g(r, "num_conversacion", "conversacion", "id") or "").strip()
+    if not num:
+        return
+    groups[num].append({
+        "tipo": norm(g(r, "tipo")), "direccion": norm(g(r, "direccion")),
+        "remitente": clean(g(r, "remitente")), "contenido": str(g(r, "contenido") or ""),
+        "hora": parse_hora(g(r, "hora")), "agente": clean(g(r, "agente")),
+        "tipificacion": clean(g(r, "tipificacion")), "es_venta": norm(g(r, "es_venta", "es venta")),
+        "url": clean(g(r, "url")),
+    })
+
+
 def load(path):
+    """Carga conversaciones desde el histórico (.csv) o un export diario (.xlsx).
+
+    El histórico (datos_historico.csv) ya trae fechas absolutas resueltas por
+    merge_history.py, así que el reporte ve TODA la semana/mes acumulada, no un
+    solo día.
+    """
+    groups = defaultdict(list)
+    if path.lower().endswith(".csv"):
+        import csv as _csv
+        with open(path, newline="", encoding="utf-8") as f:
+            rdr = _csv.DictReader(f)
+            idx = {norm(h).strip(): h for h in (rdr.fieldnames or [])}
+            def g(row, *names):
+                for n in names:
+                    if n in idx: return row.get(idx[n], "")
+                return ""
+            for row in rdr:
+                _emit(groups, g, row)
+        return groups
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     ws = wb["Historial"] if "Historial" in wb.sheetnames else wb[wb.sheetnames[0]]
     it = ws.iter_rows(values_only=True)
@@ -115,17 +151,8 @@ def load(path):
         for n in names:
             if n in idx: return row[idx[n]]
         return ""
-    groups = defaultdict(list)
     for r in it:
-        num = str(g(r, "num_conversacion", "conversacion", "id") or "").strip()
-        if not num: continue
-        groups[num].append({
-            "tipo": norm(g(r, "tipo")), "direccion": norm(g(r, "direccion")),
-            "remitente": clean(g(r, "remitente")), "contenido": str(g(r, "contenido") or ""),
-            "hora": parse_hora(g(r, "hora")), "agente": clean(g(r, "agente")),
-            "tipificacion": clean(g(r, "tipificacion")), "es_venta": norm(g(r, "es_venta", "es venta")),
-            "url": clean(g(r, "url")),
-        })
+        _emit(groups, g, r)
     return groups
 
 # Working hours = 07:00–24:00; off-hours = 00:00–07:00. SLA clock pauses off-hours.
@@ -446,12 +473,14 @@ def send(subject, html):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--period", choices=["week", "month"], required=True)
-    ap.add_argument("--file", default="datos.xlsx")
+    ap.add_argument("--file", default="datos_historico.csv")
     ap.add_argument("--dry-run", action="store_true", help="No envía; escribe preview_<period>.html")
     args = ap.parse_args()
 
     groups = load(args.file)
     convs = [s for s in (score(n, m) for n, m in groups.items()) if s]
+    # Excluir cuentas de sistema / contactos que no son coordinadoras de ventas.
+    convs = [c for c in convs if norm(c["agente"]) not in NON_AGENTS]
 
     start, end, label = period_range(args.period)
     pstart = start - (end - start)  # previous period of same length
