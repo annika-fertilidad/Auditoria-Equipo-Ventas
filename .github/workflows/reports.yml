@@ -2,8 +2,8 @@ name: Reportes PXI por correo
 
 on:
   schedule:
-    - cron: "0 14 * * 1"   # cada lunes 08:00 CT  → reporte SEMANAL
-    - cron: "0 14 1 * *"   # día 1 de cada mes 08:00 CT → reporte MENSUAL
+    - cron: "23 14 * * 1"   # lunes 08:23 CT  → reporte SEMANAL
+    - cron: "23 14 1 * *"   # día 1, 08:23 CT → reporte MENSUAL
   workflow_dispatch:
     inputs:
       period:
