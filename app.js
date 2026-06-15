@@ -408,8 +408,24 @@ function aggregate() {
   // Scoping the scorecard to the current week means each daily upload accumulates
   // toward the week, and an agent on a rest day still shows their weekly score.
   const dated = conversations.filter(c => c.dayTs != null);
-  latestDayTs = dated.length ? Math.max(...dated.map(c => c.dayTs)) : null;
-  currentWeekStart = dated.length ? Math.max(...dated.map(c => c.weekStart)) : null;
+  // "Semana actual": la semana más reciente con volumen real. Si la semana en
+  // curso apenas empezó (p. ej. lunes con un solo chat cargado), mostrarla
+  // dejaría el tablero casi vacío (una sola agente). Por eso elegimos la
+  // semana más reciente con al menos MIN_CURRENT_WEEK conversaciones, y solo
+  // si ninguna alcanza el umbral usamos la última semana disponible.
+  const MIN_CURRENT_WEEK = 10;
+  const weekCounts = {};
+  dated.forEach(c => { weekCounts[c.weekStart] = (weekCounts[c.weekStart] || 0) + 1; });
+  const weekStarts = Object.keys(weekCounts).map(Number).sort((a, b) => b - a);
+  currentWeekStart = weekStarts.find(w => weekCounts[w] >= MIN_CURRENT_WEEK)
+    ?? (weekStarts.length ? weekStarts[0] : null);
+  // El día "actual" = el día más reciente DENTRO de la semana elegida, para que
+  // la tarjeta "PXI de hoy" sea coherente con la semana mostrada.
+  const inWeek = currentWeekStart != null
+    ? dated.filter(c => c.weekStart === currentWeekStart) : dated;
+  latestDayTs = inWeek.length ? Math.max(...inWeek.map(c => c.dayTs)) : null;
+  // El mes actual se elige igual: el mes más reciente con datos (los meses
+  // acumulan mucho más, así que basta con el más reciente).
   currentMonthStart = dated.length ? Math.max(...dated.map(c => c.monthStart)) : null;
   weekConversations = currentWeekStart != null
     ? conversations.filter(c => c.weekStart === currentWeekStart)
@@ -639,14 +655,29 @@ function trendStatus(delta) {
   return { label: 'Estable', cls: 'flat', arrow: '▬' };
 }
 
+// Etiqueta de semana CON año (DD/MM/AA) para evitar que semanas de meses/años
+// distintos se vean revueltas en el eje.
+function weekLabelYr(weekStart) {
+  const d = new Date(weekStart);
+  return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getFullYear()).slice(2)}`;
+}
+
+// Mínimo de conversaciones para que una semana cuente como "real". Las semanas
+// con 1–2 conversaciones suelen ser leads antiguos que reescribieron (su primer
+// mensaje cae en una semana vieja) y ensucian la gráfica.
+const MIN_WEEK_CONVS = 3;
+
 function renderEvolution() {
   // weeks sorted by date; only dated conversations
   const dated = conversations.filter(c => c.weekStart !== null);
-  const weekMap = {};
-  dated.forEach(c => { weekMap[c.weekStart] = c.weekLabel; });
-  // Cap the chart to the most recent 12 weeks (history can span years).
-  const weekKeys = Object.keys(weekMap).map(Number).sort((a, b) => a - b).slice(-12);
-  const weekLabels = weekKeys.map(k => 'Sem ' + weekMap[k]);
+  const weekCount = {};
+  dated.forEach(c => { weekCount[c.weekStart] = (weekCount[c.weekStart] || 0) + 1; });
+  // Solo semanas con datos reales, y como máximo las 12 más recientes.
+  const weekKeys = Object.keys(weekCount).map(Number)
+    .filter(k => weekCount[k] >= MIN_WEEK_CONVS)
+    .sort((a, b) => a - b)
+    .slice(-12);
+  const weekLabels = weekKeys.map(k => 'Sem ' + weekLabelYr(k));
   const weekKeySet = new Set(weekKeys);
   const datedRecent = dated.filter(c => weekKeySet.has(c.weekStart));
 
@@ -692,7 +723,7 @@ function renderEvolution() {
   // per-agent trend cards
   document.getElementById('trendGrid').innerHTML = agents.map(agent => {
     const series = weekKeys.map(wk => ({
-      label: weekMap[wk],
+      label: weekLabelYr(wk),
       pxi: pxiOf(dated.filter(c => c.weekStart === wk && c.agente === agent)),
     })).filter(p => p.pxi !== null);
 
