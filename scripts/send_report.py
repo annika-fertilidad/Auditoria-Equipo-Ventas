@@ -314,18 +314,49 @@ def pxi_of(convs):
             w += WEIGHTS[k]; s += WEIGHTS[k] * pill[k]
     return (round(s / w) if w else None), pill
 
-def period_range(period, today=None):
+# Consejo accionable por pilar (qué hacer para subir esa categoría la próxima semana).
+PILLAR_TIP = {
+    "p1": "Responder el primer mensaje en menos de 2 min y no dejar pasar más de 15 min entre respuestas.",
+    "p2": "No cerrar el turno con un mensaje del paciente sin responder; revisar hilos abiertos antes de salir.",
+    "p3": "Antes de dar un precio, explicar el valor: qué incluye, evaluación, especialista, acompañamiento.",
+    "p4": "Evitar promesas clínicas o frases minimizadoras; usar lenguaje prudente ('los resultados varían…').",
+    "p5": "Cuidar la redacción: mayúscula inicial, abrir con ¿, sin abreviaturas informales ni MAYÚSCULAS.",
+    "p6": "Saludar siempre y cerrar con cortesía/validación ('con gusto', 'quedo al pendiente').",
+}
+
+def coaching_focus(convs):
+    """Para una coordinadora: devuelve (pilar_más_débil, pct, conversación_ejemplo).
+
+    El pilar más débil = la categoría aplicable con menor % de cumplimiento.
+    El ejemplo = una conversación donde ese pilar aplica y NO se cumplió
+    (de preferencia con URL para abrirla).
+    """
+    _, pill = pxi_of(convs)
+    applicable = {k: v for k, v in pill.items() if v is not None}
+    if not applicable:
+        return None, None, None
+    weakest = min(applicable, key=lambda k: applicable[k])
+    fails = [c for c in convs
+             if c["pillars"][weakest]["applies"] and not c["pillars"][weakest]["pass"]]
+    fails.sort(key=lambda c: (0 if c["url"] else 1, -(c["ts"].timestamp() if c["ts"] else 0)))
+    example = fails[0] if fails else None
+    return weakest, applicable[weakest], example
+
+def period_range(period, today=None, offset=1):
+    # offset = cuántos periodos hacia atrás: 1 = el periodo COMPLETO anterior
+    # (comportamiento programado por defecto), 0 = el periodo ACTUAL en curso.
     today = today or datetime.now()
     if period == "week":
-        this_mon = today - timedelta(days=today.weekday())
-        start = (this_mon - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0)
-        end = this_mon.replace(hour=0, minute=0, second=0, microsecond=0)
+        this_mon = (today - timedelta(days=today.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        start = this_mon - timedelta(days=7 * offset)
+        end = start + timedelta(days=7)
         label = f"semana del {start.strftime('%d/%m/%Y')}"
     else:
         first_this = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        last_prev_end = first_this
-        start = (first_this - timedelta(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        end = last_prev_end
+        start = first_this
+        for _ in range(offset):
+            start = (start - timedelta(days=1)).replace(day=1)
+        end = (start + timedelta(days=32)).replace(day=1)
         meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto",
                  "septiembre","octubre","noviembre","diciembre"]
         label = f"{meses[start.month-1]} {start.year}"
@@ -386,6 +417,24 @@ def build_html(period_label, cur, prev, errors):
     if not flag_rows:
         flag_rows = f'<tr><td colspan="4" style="padding:14px;color:{OK};text-align:center">✓ Sin incidencias en el periodo</td></tr>'
 
+    # Foco de coaching: por coordinadora, su pilar más débil + una conversación de ejemplo.
+    coach_rows = ""
+    for agent in sorted(cur, key=lambda a: (pxi_of(cur[a])[0] if pxi_of(cur[a])[0] is not None else 101)):
+        wk, pct, ex = coaching_focus(cur[agent])
+        if wk is None:
+            continue
+        link = (f'<a href="{ex["url"]}" style="color:{SAGE}">Abrir conv. {ex["num"]} ↗</a>'
+                if (ex and ex["url"]) else (f'conv. {ex["num"]}' if ex else "—"))
+        coach_rows += (f'<tr style="border-bottom:1px solid {BORDER}">'
+                       f'<td style="padding:9px 10px;font-weight:bold;color:{FOREST};white-space:nowrap;vertical-align:top">{agent}</td>'
+                       f'<td style="padding:9px 10px;vertical-align:top;white-space:nowrap">'
+                       f'<span style="color:{color_for(pct)};font-weight:bold">{PILLAR_LABELS[wk]}</span>'
+                       f'<div style="font-size:11px;color:{FSOFT}">{pct}% cumplimiento</div></td>'
+                       f'<td style="padding:9px 10px;color:{FSOFT};vertical-align:top">{PILLAR_TIP[wk]}'
+                       f'<div style="font-size:11px;margin-top:4px">{link}</div></td></tr>')
+    if not coach_rows:
+        coach_rows = f'<tr><td colspan="3" style="padding:14px;color:{OK};text-align:center">✓ Sin datos suficientes para coaching</td></tr>'
+
     pill_head = "".join(f'<th style="padding:8px;font-size:11px;color:{FSOFT}">{PILLAR_LABELS[k].split()[0]}</th>' for k in WEIGHTS)
 
     return f"""<!DOCTYPE html><html><body style="margin:0;background:{CREAM};font-family:'DM Sans',Arial,sans-serif;color:{FOREST}">
@@ -414,6 +463,15 @@ def build_html(period_label, cur, prev, errors):
       {pill_head}
       <th style="padding:8px;font-size:11px;color:{FSOFT}">Convs</th>
     </tr></thead><tbody>{rows}</tbody>
+  </table>
+
+  <h2 style="font-size:16px;margin:28px 0 12px">Foco de coaching por coordinadora</h2>
+  <table width="100%" style="border-collapse:collapse;background:{IVORY};border:1px solid {BORDER};border-radius:8px;font-size:13px">
+    <thead><tr style="background:{CREAM}">
+      <th style="text-align:left;padding:8px 10px;font-size:11px;color:{FSOFT}">Coordinadora</th>
+      <th style="text-align:left;padding:8px 10px;font-size:11px;color:{FSOFT}">Pilar más débil</th>
+      <th style="text-align:left;padding:8px 10px;font-size:11px;color:{FSOFT}">Acción sugerida + ejemplo</th>
+    </tr></thead><tbody>{coach_rows}</tbody>
   </table>
 
   <h2 style="font-size:16px;margin:28px 0 12px">Incidencias del periodo</h2>
@@ -473,6 +531,8 @@ def send(subject, html):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--period", choices=["week", "month"], required=True)
+    ap.add_argument("--offset", type=int, default=1,
+                    help="Periodos hacia atrás: 1 = anterior completo (default), 0 = actual en curso.")
     ap.add_argument("--file", default="datos_historico.csv")
     ap.add_argument("--dry-run", action="store_true", help="No envía; escribe preview_<period>.html")
     args = ap.parse_args()
@@ -482,7 +542,7 @@ def main():
     # Excluir cuentas de sistema / contactos que no son coordinadoras de ventas.
     convs = [c for c in convs if norm(c["agente"]) not in NON_AGENTS]
 
-    start, end, label = period_range(args.period)
+    start, end, label = period_range(args.period, offset=args.offset)
     pstart = start - (end - start)  # previous period of same length
     def bucket(s, e):
         d = defaultdict(list)
