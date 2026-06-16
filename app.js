@@ -204,13 +204,16 @@ function workingMinutesBetween(t0, t1) {
 
 // ── Score a single conversation ──────────────────────────────────────────────
 function needsReply(text) {
-  const t = norm(text).trim();
+  let t = norm(text).trim();
   if (!t) return false;
-  if (t.includes('?')) return true;
-  if (hasAny(t, TOK.request)) return true;
-  const words = t.split(/\s+/);
-  if (words.length <= 2) return false;
+  if (t.includes('?') || String(text).includes('¿')) return true;
+  // "en cuanto" / "en cuanto a" = "tan pronto como": NO es solicitud de precio.
+  // Sin este guard, "En cuanto realice la transferencia…" matcheaba "cuanto" y
+  // se marcaba como pregunta pendiente (falso positivo en chats ya cerrados).
+  t = t.replace(/\ben cuanto\b/g, ' ');
+  // Cierre/cortesía sin pregunta ("igualmente", "muchas gracias") no requiere respuesta.
   if (hasAny(t, TOK.closer) && !hasAny(t, TOK.request)) return false;
+  if (hasAny(t, TOK.request)) return true;
   return false;
 }
 
@@ -341,26 +344,47 @@ function scoreConversation(c) {
   c.polite = polite;
 
   // ── Response-time analysis (only counts time the LEAD is waiting on the agent) ──
-  // Walk the thread: a lead message that needs a reply starts the clock; the next
-  // agent message stops it. Off-hours minutes don't count (clock pauses overnight).
+  // Una pregunta del lead arranca el reloj; la respuesta del agente lo detiene.
+  // Reglas (afinadas para no marcar falsos >2h):
+  //  · Solo cuentan los retrasos del MISMO día. Un hueco que cruza al día
+  //    siguiente = lead que se enfrió y se re-enganchó después, NO un
+  //    incumplimiento de SLA (>2h).
+  //  · Los mensajes que llegan en horario nocturno (12am–7am) entran a la cola
+  //    matutina: deben atenderse en la 1ª hora del turno (antes de las 8am);
+  //    si se responden después, sí es tardío.
+  //  · Una pregunta en horario laboral que queda sin responder al final del
+  //    snapshot NO se marca como >2h (pudo responderse tras el corte del export);
+  //    eso ya lo captura P2 (atención plena).
+  const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
   let maxWaitWorking = 0, pendingSince = null;
+  let agentSlow = false, morningQueue = false;
+  c.pendingHour = null;
   for (const m of chat) {
     if (!m.hora) continue;
     if (m.direccion === 'entrante') {
       if (pendingSince === null && needsReply(m.contenido)) pendingSince = m.hora;
     } else if (m.direccion === 'saliente' && pendingSince !== null) {
-      maxWaitWorking = Math.max(maxWaitWorking, workingMinutesBetween(pendingSince, m.hora));
+      const reply = m.hora;
+      const h = new Date(pendingSince).getHours();
+      if (h < WORK_START_H) {
+        // Cola matutina: debió responderse antes de las 8am.
+        maxWaitWorking = Math.max(maxWaitWorking, workingMinutesBetween(pendingSince, reply));
+        const deadline = new Date(pendingSince); deadline.setHours(WORK_START_H + 1, 0, 0, 0);
+        if (reply > deadline.getTime()) agentSlow = true;
+      } else if (sameDay(pendingSince, reply)) {
+        const wm = workingMinutesBetween(pendingSince, reply);
+        maxWaitWorking = Math.max(maxWaitWorking, wm);
+        if (wm > 120) agentSlow = true;
+      } // else: respondió otro día → lead frío / re-enganche, sin incumplimiento.
       pendingSince = null;
     }
   }
-  let agentSlow = maxWaitWorking > 120;   // agent took >2 working-hours to reply
-  let morningQueue = false;               // needs attention in the first morning shift
-  c.pendingHour = null;
-  if (pendingSince !== null) {            // thread ends with the lead still waiting
+  if (pendingSince !== null) {            // hilo termina con el lead esperando
     const h = new Date(pendingSince).getHours();
     c.pendingHour = h;
-    if (h < WORK_START_H) morningQueue = true;  // arrived during off-hours (12am–7am)
-    else agentSlow = true;               // arrived during working hours, still unanswered → agent accountable
+    if (h < WORK_START_H) morningQueue = true;  // llegó de noche → cola matutina (R5)
+    // En horario laboral sin responder al cierre del snapshot: lo captura P2,
+    // no lo duplicamos como R4/R5.
   }
   c.maxWaitWorking = maxWaitWorking;
   c.agentSlow = agentSlow;

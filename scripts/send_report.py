@@ -103,7 +103,13 @@ def parse_hora(h):
 def needs_reply(text):
     t = norm(text).strip()
     if not t: return False
-    if "?" in t: return True
+    if "?" in t or "¿" in str(text): return True
+    # "en cuanto" = "tan pronto como": NO es solicitud de precio. Sin este guard,
+    # "En cuanto realice la transferencia…" matcheaba "cuanto" y marcaba el chat
+    # cerrado como pregunta pendiente (falso positivo).
+    t = re.sub(r"\ben cuanto\b", " ", t)
+    # Cierre/cortesía sin pregunta ("igualmente", "muchas gracias") no requiere respuesta.
+    if has_any(t, TOK["closer"]) and not has_any(t, TOK["request"]): return False
     if has_any(t, TOK["request"]): return True
     return False
 
@@ -277,8 +283,16 @@ def score(num, msgs):
     pillars["p6"] = {"applies": True, "pass": greeted and polite}
 
     alltext = norm(" ".join(m["contenido"] for m in chat))
-    # Response-time analysis: only count time the LEAD is waiting on the agent.
+    # Response-time analysis (misma lógica afinada que el dashboard):
+    #  · Solo cuentan retrasos del MISMO día. Un hueco que cruza al día siguiente
+    #    = lead frío / re-enganche, NO un incumplimiento >2h.
+    #  · Mensajes nocturnos (12am–7am) entran a la cola matutina: deben atenderse
+    #    antes de las 8am; si se responden después, es tardío.
+    #  · Pregunta en horario laboral sin responder al final del snapshot NO se
+    #    marca como >2h (lo captura P2).
     max_wait_working = 0
+    agent_slow = False
+    morning_queue = False
     pending_since = None
     for m in chat:
         if not m["hora"]:
@@ -287,16 +301,23 @@ def score(num, msgs):
             if pending_since is None and needs_reply(m["contenido"]):
                 pending_since = m["hora"]
         elif m["direccion"] == "saliente" and pending_since is not None:
-            max_wait_working = max(max_wait_working, working_minutes_between(pending_since, m["hora"]))
+            reply = m["hora"]
+            if pending_since.hour < WORK_START_H:
+                max_wait_working = max(max_wait_working, working_minutes_between(pending_since, reply))
+                deadline = pending_since.replace(hour=WORK_START_H + 1, minute=0, second=0, microsecond=0)
+                if reply > deadline:
+                    agent_slow = True
+            elif pending_since.date() == reply.date():
+                wm = working_minutes_between(pending_since, reply)
+                max_wait_working = max(max_wait_working, wm)
+                if wm > 120:
+                    agent_slow = True
+            # else: respondió otro día → sin incumplimiento.
             pending_since = None
-    agent_slow = max_wait_working > 120
-    morning_queue = False
     if pending_since is not None:  # thread ends with the lead still waiting
-        h = pending_since.hour
-        if h < WORK_START_H:
-            morning_queue = True   # arrived during off-hours (12am–7am) → first morning shift
-        else:
-            agent_slow = True      # arrived during working hours, still unanswered → agent accountable
+        if pending_since.hour < WORK_START_H:
+            morning_queue = True   # llegó de noche → cola matutina (R5)
+        # En horario laboral sin responder al cierre: lo captura P2, no R4/R5.
     flags = {
         "r1": frus and not validated,
         "r2": clinical,
