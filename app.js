@@ -131,9 +131,16 @@ function col(row, names) {
 function buildConversations(rows) {
   const groups = {};
   rows.forEach(r => {
+    // OJO: `num_conversacion` NO es único — Atom reutiliza esos números entre
+    // conversaciones distintas, así que agrupar por él mezcla pacientes
+    // diferentes y genera huecos falsos (p. ej. "sin respuesta >2h"). El
+    // identificador real de la conversación es la URL de Atom. Agrupamos por
+    // URL; si faltara, caemos al num_conversacion.
     const num = String(col(r, ['num_conversacion','num conversacion','conversacion','id'])).trim();
-    if (!num) return;
-    (groups[num] ||= []).push({
+    const url = String(col(r, ['url'])).trim();
+    const key = url || num;
+    if (!key) return;
+    (groups[key] ||= []).push({
       tipo: norm(col(r, ['tipo'])),
       direccion: norm(col(r, ['direccion'])),
       remitente: String(col(r, ['remitente'])).trim(),
@@ -143,12 +150,14 @@ function buildConversations(rows) {
       tipificacion: String(col(r, ['tipificacion'])).trim(),
       es_venta: norm(col(r, ['es_venta','es venta'])),
       cliente: String(col(r, ['remitente'])).trim(),
-      url: String(col(r, ['url'])).trim(),
+      num: num,
+      url: url,
     });
   });
 
   conversations = [];
-  Object.entries(groups).forEach(([num, msgs]) => {
+  Object.entries(groups).forEach(([key, msgs]) => {
+    const num = msgs.find(m => m.num)?.num || key;
     // messages only carry text
     let chat = msgs.filter(m => m.tipo === 'mensaje');
     chat.sort((a, b) => (a.hora || 0) - (b.hora || 0));

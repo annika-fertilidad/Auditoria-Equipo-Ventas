@@ -110,15 +110,21 @@ def needs_reply(text):
 PRICE_RE = re.compile(r"\$\s?\d|\b\d{3,}\b\s*(pesos|mxn|mil)|cuesta|tiene un costo|el costo es|el precio es|son \$", re.I)
 
 def _emit(groups, g, r):
+    # `num_conversacion` NO es único: Atom reutiliza esos números entre
+    # conversaciones distintas, así que agrupar por él mezcla pacientes y
+    # genera huecos falsos. El identificador real es la URL de Atom; agrupamos
+    # por URL y, si faltara, caemos al num_conversacion.
     num = str(g(r, "num_conversacion", "conversacion", "id") or "").strip()
-    if not num:
+    url = clean(g(r, "url"))
+    key = url or num
+    if not key:
         return
-    groups[num].append({
+    groups[key].append({
         "tipo": norm(g(r, "tipo")), "direccion": norm(g(r, "direccion")),
         "remitente": clean(g(r, "remitente")), "contenido": str(g(r, "contenido") or ""),
         "hora": parse_hora(g(r, "hora")), "agente": clean(g(r, "agente")),
         "tipificacion": clean(g(r, "tipificacion")), "es_venta": norm(g(r, "es_venta", "es venta")),
-        "url": clean(g(r, "url")),
+        "url": url, "num": num,
     })
 
 
@@ -301,6 +307,7 @@ def score(num, msgs):
     ts = next((m["hora"] for m in chat if m["hora"]), None)
     es_venta = next((m["es_venta"] for m in msgs if m["es_venta"]), "")
     url = next((m["url"] for m in msgs if m["url"]), "")
+    num = next((m["num"] for m in msgs if m.get("num")), num)  # nº real (la clave puede ser la URL)
     return {"num": num, "agente": agente, "pillars": pillars, "flags": flags, "frm": frm,
             "max_wait_working": max_wait_working, "ts": ts, "es_venta": es_venta, "url": url}
 
