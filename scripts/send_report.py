@@ -200,9 +200,22 @@ def score(num, msgs):
 
     # P1 Speed (working hours 7am–midnight; clock pauses overnight).
     # Two-tier SLA: 1st reply < 2 min; every later reply within 15 min.
+    # El reloj arranca en el HANDOFF (cuando Atom asigna el chat a la asesora), no en el
+    # primer mensaje del lead: el bot atiende la calificación inicial al instante y el
+    # enrutamiento no es responsabilidad de la asesora. Sin evento de asignación, caemos
+    # al primer mensaje entrante.
     first_in = inbound[0]["hora"]
     first_reply = next((m["hora"] for m in out if m["hora"] and first_in and m["hora"] >= first_in), None)
-    frm = working_minutes_between(first_in, first_reply) if (first_in and first_reply) else None
+    assign_ts = [m["hora"] for m in msgs
+                 if m["tipo"] == "evento" and m["hora"]
+                 and re.search(r"asignad[oa]", m["contenido"] or "", re.I)
+                 and not re.search(r"al bot", m["contenido"] or "", re.I)]
+    sla_start = first_in
+    if first_reply and first_in:
+        handoffs = [t for t in assign_ts if t and t <= first_reply]
+        if handoffs:
+            sla_start = max([first_in] + handoffs)
+    frm = working_minutes_between(sla_start, first_reply) if (sla_start and first_reply) else None
 
     max_sub = None
     p_since = None

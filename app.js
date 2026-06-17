@@ -180,7 +180,14 @@ function buildConversations(rows) {
     const tipificacion = msgs.find(m => m.tipificacion)?.tipificacion || '';
     const es_venta = msgs.find(m => m.es_venta)?.es_venta || '';
 
-    conversations.push(scoreConversation({ num, chat, inbound, humanOut, agente, url, tipificacion, es_venta }));
+    // Atom assignment/handoff events ("ATOM/X ha (re)asignado esta conversación … a <agente>").
+    // tipo='evento' (filtered out of `chat`), so we collect them here. These mark the moment
+    // the human agent actually receives the chat — the correct start for the velocity (P1) clock.
+    const assignTs = msgs
+      .filter(m => m.tipo === 'evento' && /asignad[oa]/i.test(m.contenido) && !/al bot/i.test(m.contenido) && m.hora)
+      .map(m => m.hora);
+
+    conversations.push(scoreConversation({ num, chat, inbound, humanOut, agente, url, tipificacion, es_venta, assignTs }));
   });
 }
 
@@ -218,17 +225,25 @@ function needsReply(text) {
 }
 
 function scoreConversation(c) {
-  const { chat, inbound, humanOut } = c;
+  const { chat, inbound, humanOut, assignTs } = c;
   const agentText = norm(humanOut.map(m => m.contenido).join('  ||  '));
   const patientText = norm(inbound.map(m => m.contenido).join('  ||  '));
   const pillars = {};
 
   // ── P1 Speed ── (working hours 7am–midnight; clock pauses overnight)
-  // Two-tier SLA: first reply to the lead's opening message must be < 2 min;
-  // every reply afterwards must be within 15 min.
+  // Two-tier SLA: first reply must be < 2 min; every reply afterwards within 15 min.
+  // El reloj de velocidad arranca cuando la asesora RECIBE el chat (handoff de Atom),
+  // no en el primer mensaje del lead: el bot atiende la calificación inicial al instante
+  // y el tiempo de enrutamiento no es responsabilidad de la asesora. Si no hay evento de
+  // asignación, caemos al primer mensaje entrante.
   const firstIn = inbound[0]?.hora;
   const firstReply = humanOut.find(m => m.hora && firstIn && m.hora >= firstIn)?.hora;
-  let firstRespMin = (firstIn && firstReply) ? workingMinutesBetween(firstIn, firstReply) : null;
+  let slaStart = firstIn;
+  if (firstReply != null && firstIn != null && Array.isArray(assignTs) && assignTs.length) {
+    const handoffs = assignTs.filter(t => t != null && t <= firstReply);
+    if (handoffs.length) slaStart = Math.max(firstIn, ...handoffs);
+  }
+  let firstRespMin = (slaStart && firstReply) ? workingMinutesBetween(slaStart, firstReply) : null;
 
   // Subsequent reply gaps (after the first reply), in working minutes.
   let maxSubRespMin = null;
