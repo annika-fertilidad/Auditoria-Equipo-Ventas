@@ -79,6 +79,13 @@ let flagFilterAgent = '', flagFilterType = '';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+// Cómo se MUESTRA el nombre de una coordinadora (la agrupación interna no cambia).
+// Itzel se escribe siempre sin acento, por preferencia.
+const NAME_DISPLAY = { 'itzel rodriguez': 'Itzel Rodriguez' };
+const displayName = n => {
+  const clean = String(n || '').replace(/\s+/g, ' ').trim();
+  return NAME_DISPLAY[norm(clean).trim()] || clean;
+};
 const hasAny = (text, tokens) => tokens.some(t => text.includes(t));
 const isBot = remitente => BOTS.includes(norm(remitente).trim());
 
@@ -174,7 +181,7 @@ function buildConversations(rows) {
     const outCounts = {};
     humanOut.forEach(m => { const n = cleanName(m.remitente); if (n) outCounts[n] = (outCounts[n] || 0) + 1; });
     const topOut = Object.entries(outCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
-    const agente = agenteCol || topOut || 'Sin asignar';
+    const agente = displayName(agenteCol || topOut || 'Sin asignar');
     if (isNonAgent(agente)) return; // cuenta de sistema / no es coordinadora
     const url = msgs.find(m => m.url)?.url || '';
     const tipificacion = msgs.find(m => m.tipificacion)?.tipificacion || '';

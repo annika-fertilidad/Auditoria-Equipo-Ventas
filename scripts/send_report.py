@@ -85,6 +85,13 @@ def norm(s):
 def clean(s):
     return re.sub(r"\s+", " ", str(s or "")).strip()
 
+# Cómo se MUESTRA el nombre de una coordinadora (sin afectar la agrupación interna).
+# Itzel se escribe siempre sin acento, por preferencia.
+NAME_DISPLAY = {"itzel rodriguez": "Itzel Rodriguez"}
+def display_name(n):
+    c = clean(n)
+    return NAME_DISPLAY.get(norm(c).strip(), c)
+
 def has_any(text, toks):
     return any(t in text for t in toks)
 
@@ -194,6 +201,7 @@ def score(num, msgs):
     agente = clean(next((m["agente"] for m in msgs if clean(m["agente"])), "")) or \
              (max({m["remitente"]: sum(1 for x in out if x["remitente"] == m["remitente"]) for m in out}.items(),
                   key=lambda kv: kv[1])[0] if out else "") or "Sin asignar"
+    agente = display_name(agente)
     atext = norm("  ".join(m["contenido"] for m in out))
     ptext = norm("  ".join(m["contenido"] for m in inbound))
     pillars = {}
