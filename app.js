@@ -585,7 +585,7 @@ function renderKPIs() {
   document.getElementById('kpiGrid').innerHTML = `
     ${kpi('PXI del mes' + (clinic.monthLabel ? ' · ' + clinic.monthLabel : ''), (clinic.monthPxi ?? '—'), '/100', pxiClass(clinic.monthPxi))}
     ${kpi('PXI de la clínica · semana' + (clinic.weekLabel ? ' ' + clinic.weekLabel : ''), (clinic.pxi ?? '—'), '/100', pxiClass(clinic.pxi))}
-    ${kpi('PXI de hoy' + (clinic.dayLabel ? ' · ' + clinic.dayLabel : ''), (clinic.dayPxi ?? '—'), '/100', pxiClass(clinic.dayPxi))}
+    ${kpi('PXI último día' + (clinic.dayLabel ? ' · ' + clinic.dayLabel : ''), (clinic.dayPxi ?? '—'), '/100', pxiClass(clinic.dayPxi))}
     ${kpi('Conversaciones · mes', clinic.monthConvs, clinic.convs != null ? ` · ${clinic.convs} esta semana` : '')}
     ${kpi('Cumple SLA velocidad', clinic.slaPct != null ? clinic.slaPct + '%' : '—', '', pxiClass(clinic.slaPct))}
     ${kpi('Citas agendadas (semana)', clinic.appts, '')}
@@ -613,10 +613,14 @@ function renderScorecards() {
         <div class="pillar-pct">${v == null ? 'N/A' : v + '%'}</div>
       </div>`;
     }).join('');
+    // OJO: los datos llegan con 1 día de retraso, así que el "último día" es el día
+    // más reciente CON DATOS (normalmente ayer), no el día de hoy. Por eso no decimos
+    // "hoy" ni "descanso hoy" (que sonaría a que está libre justo hoy).
+    const dayTag = clinic.dayLabel ? `Últ. día ${clinic.dayLabel}` : 'Últ. día';
     const dcls = a.restDay ? 'na' : pxiClass(a.dailyPxi);
     const dayChip = a.restDay
-      ? `<span class="sc-day na">Descanso hoy</span>`
-      : `<span class="sc-day ${dcls}">Hoy: <strong>${a.dailyPxi ?? '—'}</strong> · ${a.dayCount} conv.</span>`;
+      ? `<span class="sc-day na">${clinic.dayLabel ? 'Sin actividad · ' + clinic.dayLabel : 'Sin actividad'}</span>`
+      : `<span class="sc-day ${dcls}">${dayTag}: <strong>${a.dailyPxi ?? '—'}</strong> · ${a.dayCount} conv.</span>`;
     const mcls = a.monthlyPxi == null ? 'na' : pxiClass(a.monthlyPxi);
     const monthChip = `<span class="sc-day ${mcls}">Mes: <strong>${a.monthlyPxi ?? '—'}</strong> · ${a.monthCount} conv.</span>`;
     return `<div class="fi-card scorecard">
