@@ -33,6 +33,8 @@ header { background: var(--fi-ivory); border-bottom: 1px solid var(--fi-border);
 .logo-icon { width: 44px; height: 44px; background: var(--fi-forest); color: var(--fi-cream); border-radius: var(--r-md); display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 15px; letter-spacing: .04em; }
 .header-title { font-size: 1.125rem; font-weight: 600; letter-spacing: -.01em; }
 .header-sub { font-size: .8125rem; color: var(--fi-forest-soft); }
+.header-meta { font-size: .75rem; color: var(--fi-sage); margin-top: 2px; }
+.header-meta strong { color: var(--fi-forest); font-weight: 600; }
 .header-actions { display: flex; gap: 10px; align-items: center; }
 
 /* ── Buttons ── */

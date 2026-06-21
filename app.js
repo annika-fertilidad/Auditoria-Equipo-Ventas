@@ -76,6 +76,7 @@ let currentWeekStart = null; // Monday of the most recent week
 let currentMonthStart = null;// 1st of the most recent month
 let activeTab = 'scorecard';
 let flagFilterAgent = '', flagFilterType = '';
+let dataLastModified = null;  // fecha de la última subida del archivo de datos (cabecera HTTP)
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -572,11 +573,27 @@ let charts = {};
 function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
 
 function renderAll() {
+  renderHeaderMeta();
   renderKPIs();
   renderScorecards();
   renderCharts();
   renderFlags();
   renderSampling();
+}
+
+// Encabezado: "Datos hasta …" (cobertura) + "Actualizado el …" (subida del archivo).
+// Los datos llegan con 1 día de retraso, así que la cobertura suele terminar ayer.
+function renderHeaderMeta() {
+  const el = document.getElementById('headerMeta');
+  if (!el) return;
+  const MESES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  const fmt = d => `${d.getDate()} ${MESES[d.getMonth()]} ${d.getFullYear()}`;
+  const dated = conversations.filter(c => c.dayTs != null);
+  const coverEnd = dated.length ? new Date(Math.max(...dated.map(c => c.dayTs))) : null;
+  const parts = [];
+  if (coverEnd) parts.push(`Datos hasta el <strong>${fmt(coverEnd)}</strong>`);
+  if (dataLastModified && !isNaN(dataLastModified)) parts.push(`actualizado el ${fmt(dataLastModified)}`);
+  el.innerHTML = parts.join(' · ');
 }
 
 function pxiClass(v) { return v == null ? '' : v >= 80 ? 'success' : v >= 60 ? 'warning' : 'danger'; }
@@ -938,6 +955,10 @@ async function autoLoad(force) {
     try {
       const res = await fetch(name, { cache: 'no-store' });
       if (!res.ok) continue;
+      // Fecha real de la última actualización del archivo de datos (cabecera HTTP
+      // de GitHub Pages), para mostrar "Actualizado el …" en el encabezado.
+      const lm = res.headers.get('last-modified');
+      dataLastModified = lm ? new Date(lm) : null;
       const buf = await res.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array', cellDates: false });
       ingestWorkbook(wb, name);
