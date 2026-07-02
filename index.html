@@ -33,6 +33,7 @@
       <button class="tab" id="tab-evolution" onclick="switchTab('evolution')">Evolución semanal</button>
       <button class="tab" id="tab-flags" onclick="switchTab('flags')">Intervención inmediata</button>
       <button class="tab" id="tab-sampling" onclick="switchTab('sampling')">Muestreo manual</button>
+      <button class="tab" id="tab-feedback" onclick="switchTab('feedback')">Sugerencias</button>
     </div>
   </header>
 
@@ -165,6 +166,72 @@
       <div class="section-title">Muestreo manual del supervisor</div>
       <p class="section-note">El export es solo texto: estos puntos NO se auto-evalúan. El supervisor revisa ~3 chats por agente a la semana y marca lo que corresponda. Tus marcas se guardan en este navegador.</p>
       <div class="sampling-grid" id="samplingGrid"></div>
+    </div>
+
+    <!-- TAB: FEEDBACK / SUGERENCIAS -->
+    <div id="panel-feedback" style="display:none">
+      <div class="section-title">Sugerencias y comentarios del equipo</div>
+      <p class="section-note">¿Algo del panel no cuadra, falta o se podría mejorar? ¿La forma de evaluar (PXI, pilares, alertas) no refleja bien tu trabajo? Cuéntanos: cada sugerencia nos ayuda a afinar tanto el panel como el análisis. Puedes enviarla de forma anónima.</p>
+
+      <div class="fi-card feedback-card">
+        <form id="feedbackForm" onsubmit="return submitFeedback(event)">
+          <div class="fb-row">
+            <label class="fb-field">
+              <span class="fb-label">Tu nombre <em>(opcional)</em></span>
+              <input type="text" name="nombre" class="fb-input" placeholder="Ej. Michelle Hernandez" autocomplete="off" />
+            </label>
+            <label class="fb-field">
+              <span class="fb-label">Clínica / equipo <em>(opcional)</em></span>
+              <select name="clinica" class="fb-input">
+                <option value="">—</option>
+                <option>CDMX</option>
+                <option>GDL</option>
+                <option>MTP</option>
+                <option>Coordinación / Dirección</option>
+                <option>Otro</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="fb-row">
+            <label class="fb-field">
+              <span class="fb-label">¿Sobre qué es tu comentario?</span>
+              <select name="categoria" class="fb-input" required>
+                <option value="">Selecciona…</option>
+                <option>El panel / dashboard (cómo se ve o navega)</option>
+                <option>El análisis / la forma de evaluar (PXI, pilares, alertas)</option>
+                <option>Algo que parece un error o dato incorrecto</option>
+                <option>Una idea o función nueva</option>
+                <option>Otro</option>
+              </select>
+            </label>
+            <label class="fb-field">
+              <span class="fb-label">Sección relacionada <em>(opcional)</em></span>
+              <select name="seccion" class="fb-input">
+                <option value="">—</option>
+                <option>Scorecard PXI</option>
+                <option>Evolución semanal</option>
+                <option>Intervención inmediata (alertas)</option>
+                <option>Muestreo manual</option>
+                <option>Velocidad de respuesta (P1)</option>
+                <option>Amabilidad (P6)</option>
+                <option>Otra / general</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="fb-field">
+            <span class="fb-label">Tu sugerencia o comentario</span>
+            <textarea name="mensaje" class="fb-input fb-textarea" rows="5" required
+              placeholder="Describe con detalle qué notaste, qué esperarías ver, o cómo se podría mejorar. Entre más específico, mejor lo podemos resolver."></textarea>
+          </label>
+
+          <div class="fb-actions">
+            <span class="fb-status" id="feedbackStatus"></span>
+            <button type="submit" class="btn-primary" id="feedbackSubmit">Enviar sugerencia</button>
+          </div>
+        </form>
+      </div>
     </div>
 
     <footer class="dash-footer">

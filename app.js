@@ -563,9 +563,53 @@ function switchTab(tab) {
   activeTab = tab;
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
-  ['scorecard','evolution','flags','sampling'].forEach(p =>
+  ['scorecard','evolution','flags','sampling','feedback'].forEach(p =>
     document.getElementById('panel-' + p).style.display = p === tab ? '' : 'none');
   if (tab === 'evolution') renderEvolution();
+}
+
+// ── Feedback / Sugerencias ────────────────────────────────────────────────────
+// Endpoint de Formspree (pegar el ID del formulario tras crearlo en formspree.io).
+const FEEDBACK_ENDPOINT = 'https://formspree.io/f/mwvdwqrr';
+
+function submitFeedback(e) {
+  e.preventDefault();
+  const form = e.target;
+  const btn = document.getElementById('feedbackSubmit');
+  const status = document.getElementById('feedbackStatus');
+
+  if (FEEDBACK_ENDPOINT.includes('REEMPLAZAR_ID')) {
+    status.className = 'fb-status err';
+    status.textContent = 'El formulario aún no está conectado. Avísale al equipo de dirección.';
+    return false;
+  }
+
+  btn.disabled = true;
+  status.className = 'fb-status';
+  status.textContent = 'Enviando…';
+
+  fetch(FEEDBACK_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Accept': 'application/json' },
+    body: new FormData(form),
+  })
+    .then(res => {
+      if (res.ok) {
+        form.reset();
+        status.className = 'fb-status ok';
+        status.textContent = '¡Gracias! Tu sugerencia se envió correctamente.';
+      } else {
+        status.className = 'fb-status err';
+        status.textContent = 'No se pudo enviar. Intenta de nuevo en un momento.';
+      }
+    })
+    .catch(() => {
+      status.className = 'fb-status err';
+      status.textContent = 'No se pudo enviar. Revisa tu conexión e intenta de nuevo.';
+    })
+    .finally(() => { btn.disabled = false; });
+
+  return false;
 }
 
 // ── Render ──────────────────────────────────────────────────────────────────
