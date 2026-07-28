@@ -51,7 +51,32 @@ const POLITE = ['por favor','porfavor','gracias','con gusto','con mucho gusto','
   'quedo a la orden','a la orden','quedo pendiente','con todo gusto te','sera un placer atender','permiteme',
   'con gusto te','te comparto','te ayudo','te apoyo','te puedo ayudar','quedo al pendiente','estamos al pendiente',
   'estamos para','no te preocupes','no hay problema','con todo el gusto','sera un gusto','con cariño','un abrazo',
-  'que tengas','saludos cordiales','muchas gracias','mil gracias','claro que','por nada','estamos en contacto'];
+  'que tengas','saludos cordiales','muchas gracias','mil gracias','claro que','por nada','estamos en contacto',
+  // Frases cálidas adicionales sugeridas por el equipo (feedback Amabilidad).
+  'gracias por compartirme','gracias por compartir','permite un momento','permiteme un momento',
+  'sigo contigo','estoy contigo','con mucho cariño','claro que si','no te preocupe','no se preocupe'];
+
+// Apertura cálida por PRESENTACIÓN (alternativa al saludo cuando la asesora abre el hilo).
+const INTRO = ['mi nombre es','me llamo','soy tu asesora','soy tu asesor','un placer atenderte',
+  'un placer poderte ayudar','un placer poder ayudarte','con quien tengo el gusto','con quien tengo el placer',
+  'sera un placer atenderte','sera un gusto atenderte','un gusto atenderte','un gusto poder ayudarte'];
+
+// Cierre cordial (solo se exige cuando la asesora tuvo el último turno).
+const CLOSING = ['quedo al pendiente','quedo pendiente','estamos al pendiente','estamos en contacto',
+  'seguimos en contacto','quedo atent','cualquier duda','cualquier cosa','cualquier pregunta','me avisas',
+  'me comentas','que tengas','que tenga','excelente dia','feliz dia','feliz tarde','buen dia','saludos',
+  'estamos para servirte','estamos para ayudarte','estoy para ayudar','estoy para servir','quedo a la orden',
+  'a la orden','con gusto te ayudo','no dudes en'];
+
+// Frases frías. HARD = trato descortés → fuerza nivel Deficiente (0).
+const COLD_HARD = ['no me importa','no hacemos lo que quieres','no hacemos lo que quiere','yo no se',
+  'no te entiendo','no le entiendo','no es mi problema','ya te dije','tienes que entender'];
+// SOFT = trato seco/impersonal → limita el nivel a Aceptable (70) como máximo.
+const COLD_SOFT = ['esperame','espere','explicame bien','explique bien','estos son los precios',
+  'ese es el precio','tienes que ver a un doctor','tiene que ver a un doctor','solo te puedo decir'];
+
+// Detección de emoji en el texto de la asesora (bonus de calidez).
+const EMOJI = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}❤♥☺✅️]/u;
 
 const MONTHS = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto',
   'septiembre','octubre','noviembre','diciembre'];
@@ -88,6 +113,10 @@ const displayName = n => {
   return NAME_DISPLAY[norm(clean).trim()] || clean;
 };
 const hasAny = (text, tokens) => tokens.some(t => text.includes(t));
+
+// Valor numérico (0..100) de un pilar. Los pilares binarios usan pass→100/0;
+// los pilares graduados (p. ej. P6) llevan un `score` (0/70/100).
+const pillarVal = p => (p.score != null ? p.score : (p.pass ? 100 : 0));
 const isBot = remitente => BOTS.includes(norm(remitente).trim());
 
 function parseHora(h) {
@@ -359,12 +388,40 @@ function scoreConversation(c) {
   c.writingIssues = writingIssues;
   c.writingBadRate = substantial.length ? Math.round(badMsgs / substantial.length * 100) : null;
 
-  // ── P6 Friendliness & Courtesy ── (always applies)
-  const greeted = hasAny(agentText, GREET);
-  const polite = hasAny(agentText, POLITE) || validated;
-  pillars.p6 = { applies: true, pass: greeted && polite };
-  c.greeted = greeted;
-  c.polite = polite;
+  // ── P6 Amabilidad y cortesía ── (rúbrica por niveles; siempre aplica)
+  // Excelente = 100 · Aceptable = 70 · Deficiente = 0. Consciente del contexto,
+  // según el feedback del equipo:
+  //  · Saludo/presentación SOLO se exige si la asesora ABRE el hilo (no a mitad).
+  //  · Cierre cordial SOLO se exige si la asesora tuvo el ÚLTIMO turno.
+  //  · Frases frías restan; frases cálidas / empatía / emoji suman.
+  //  · NO se penaliza la brevedad: la calidez se juzga por tono, no por longitud.
+  const firstOut = norm(humanOut[0]?.contenido || '');
+  const lastOut  = norm(humanOut[humanOut.length - 1]?.contenido || '');
+  const agentOpened  = humanOut.length ? chat.indexOf(humanOut[0]) <= 1 : false;
+  const agentHadLast = chat.length > 0 && chat[chat.length - 1].direccion === 'saliente';
+
+  const hardCold   = hasAny(agentText, COLD_HARD);
+  const softCold   = hasAny(agentText, COLD_SOFT);
+  const warmOpen   = agentOpened ? (hasAny(firstOut, GREET) || hasAny(firstOut, INTRO)) : true;
+  const courtesy   = hasAny(agentText, POLITE) || validated;
+  const properClose = agentHadLast ? (hasAny(lastOut, CLOSING) || hasAny(lastOut, POLITE)) : true;
+  const warmBonus  = EMOJI.test(agentText);
+
+  let p6score;
+  if (hardCold) {
+    p6score = 0;                              // trato descortés → Deficiente
+  } else {
+    const missed = (warmOpen ? 0 : 1) + (courtesy ? 0 : 1) + (properClose ? 0 : 1);
+    if (missed === 0)      p6score = 100;                     // todo lo aplicable cumplido
+    else if (missed === 1) p6score = warmBonus ? 100 : 70;    // falta un componente
+    else                   p6score = warmBonus ? 70 : 0;      // trato frío/transaccional
+    if (softCold) p6score = Math.min(p6score, 70);            // seco → tope Aceptable
+  }
+  pillars.p6 = { applies: true, pass: p6score >= 70, score: p6score };
+  c.p6score = p6score;
+  c.p6level = p6score >= 100 ? 'Excelente' : (p6score >= 70 ? 'Aceptable' : 'Deficiente');
+  c.greeted = warmOpen;
+  c.polite  = courtesy;
 
   // ── Response-time analysis (only counts time the LEAD is waiting on the agent) ──
   // Una pregunta del lead arranca el reloj; la respuesta del agente lo detiene.
@@ -445,9 +502,9 @@ function scoreConversation(c) {
   // PXI for this conversation
   let wSum = 0, sSum = 0;
   for (const k of Object.keys(WEIGHTS)) {
-    if (pillars[k].applies) { wSum += WEIGHTS[k]; sSum += WEIGHTS[k] * (pillars[k].pass ? 1 : 0); }
+    if (pillars[k].applies) { wSum += WEIGHTS[k]; sSum += WEIGHTS[k] * pillarVal(pillars[k]); }
   }
-  c.pxi = wSum ? Math.round(sSum / wSum * 100) : null;
+  c.pxi = wSum ? Math.round(sSum / wSum) : null;
   return c;
 }
 
@@ -499,8 +556,9 @@ function aggregate() {
     const pillarPct = {};
     for (const k of Object.keys(WEIGHTS)) {
       const appl = convs.filter(c => c.pillars[k].applies);
-      const pass = appl.filter(c => c.pillars[k].pass);
-      pillarPct[k] = appl.length ? Math.round(pass.length / appl.length * 100) : null;
+      pillarPct[k] = appl.length
+        ? Math.round(appl.reduce((s, c) => s + pillarVal(c.pillars[k]), 0) / appl.length)
+        : null;
     }
     // Weekly PXI = weighted avg of available pillarPct, renormalized
     let wSum = 0, sSum = 0;
@@ -762,7 +820,7 @@ function pxiOf(convs) {
   for (const k of Object.keys(WEIGHTS)) {
     const appl = convs.filter(c => c.pillars[k].applies);
     if (!appl.length) continue;
-    const pct = appl.filter(c => c.pillars[k].pass).length / appl.length * 100;
+    const pct = appl.reduce((s, c) => s + pillarVal(c.pillars[k]), 0) / appl.length;
     wSum += WEIGHTS[k]; sSum += WEIGHTS[k] * pct;
   }
   return wSum ? Math.round(sSum / wSum) : null;

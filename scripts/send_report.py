@@ -68,7 +68,28 @@ POLITE = ["por favor","porfavor","gracias","con gusto","con mucho gusto","claro 
   "quedo a la orden","a la orden","quedo pendiente","permiteme","con gusto te","te comparto","te ayudo",
   "te apoyo","te puedo ayudar","quedo al pendiente","estamos al pendiente","estamos para","no te preocupes",
   "no hay problema","con todo el gusto","sera un gusto","con cariño","un abrazo","que tengas",
-  "saludos cordiales","muchas gracias","mil gracias","claro que","por nada","estamos en contacto"]
+  "saludos cordiales","muchas gracias","mil gracias","claro que","por nada","estamos en contacto",
+  # Frases cálidas adicionales sugeridas por el equipo (feedback Amabilidad).
+  "gracias por compartirme","gracias por compartir","permite un momento","permiteme un momento",
+  "sigo contigo","estoy contigo","con mucho cariño","no te preocupe","no se preocupe"]
+# Apertura cálida por PRESENTACIÓN (alternativa al saludo cuando la asesora abre el hilo).
+INTRO = ["mi nombre es","me llamo","soy tu asesora","soy tu asesor","un placer atenderte",
+  "un placer poderte ayudar","un placer poder ayudarte","con quien tengo el gusto","con quien tengo el placer",
+  "sera un placer atenderte","sera un gusto atenderte","un gusto atenderte","un gusto poder ayudarte"]
+# Cierre cordial (solo se exige cuando la asesora tuvo el último turno).
+CLOSING = ["quedo al pendiente","quedo pendiente","estamos al pendiente","estamos en contacto",
+  "seguimos en contacto","quedo atent","cualquier duda","cualquier cosa","cualquier pregunta","me avisas",
+  "me comentas","que tengas","que tenga","excelente dia","feliz dia","feliz tarde","buen dia","saludos",
+  "estamos para servirte","estamos para ayudarte","estoy para ayudar","estoy para servir","quedo a la orden",
+  "a la orden","con gusto te ayudo","no dudes en"]
+# Frases frías. HARD = trato descortés → fuerza nivel Deficiente (0).
+COLD_HARD = ["no me importa","no hacemos lo que quieres","no hacemos lo que quiere","yo no se",
+  "no te entiendo","no le entiendo","no es mi problema","ya te dije","tienes que entender"]
+# SOFT = trato seco/impersonal → limita el nivel a Aceptable (70) como máximo.
+COLD_SOFT = ["esperame","espere","explicame bien","explique bien","estos son los precios",
+  "ese es el precio","tienes que ver a un doctor","tiene que ver a un doctor","solo te puedo decir"]
+# Detección de emoji en el texto de la asesora (bonus de calidez).
+EMOJI = re.compile("[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U00002B00-\U00002BFF❤♥☺✅]")
 PILLAR_LABELS = {"p1":"P1 Velocidad","p2":"P2 Atención plena","p3":"P3 Valor antes de precio",
                  "p4":"P4 Lenguaje seguro","p5":"P5 Calidad de redacción","p6":"P6 Amabilidad y cortesía"}
 FLAG_LABELS = {"r1":"R1 Frustración no validada","r2":"R2 Info clínica sin confirmación",
@@ -298,10 +319,34 @@ def score(num, msgs):
     pillars["p5"] = ({"applies": True, "pass": (bad / len(substantial)) <= 0.2}
                      if substantial else {"applies": False, "pass": None})
 
-    # P6 Friendliness & Courtesy.
-    greeted = has_any(atext, GREET)
-    polite = has_any(atext, POLITE) or validated
-    pillars["p6"] = {"applies": True, "pass": greeted and polite}
+    # P6 Amabilidad y cortesía — rúbrica por niveles (Excelente=100/Aceptable=70/Deficiente=0).
+    # Consciente del contexto (feedback del equipo):
+    #  · Saludo/presentación solo se exige si la asesora ABRE el hilo.
+    #  · Cierre cordial solo se exige si la asesora tuvo el ÚLTIMO turno.
+    #  · Frases frías restan; calidez/empatía/emoji suman. No se penaliza la brevedad.
+    first_out = norm(out[0]["contenido"]) if out else ""
+    last_out = norm(out[-1]["contenido"]) if out else ""
+    agent_opened = bool(out) and chat.index(out[0]) <= 1
+    agent_had_last = bool(chat) and chat[-1]["direccion"] == "saliente"
+    hard_cold = has_any(atext, COLD_HARD)
+    soft_cold = has_any(atext, COLD_SOFT)
+    warm_open = (has_any(first_out, GREET) or has_any(first_out, INTRO)) if agent_opened else True
+    courtesy = has_any(atext, POLITE) or validated
+    proper_close = (has_any(last_out, CLOSING) or has_any(last_out, POLITE)) if agent_had_last else True
+    warm_bonus = bool(EMOJI.search(atext))
+    if hard_cold:
+        p6_score = 0
+    else:
+        missed = (0 if warm_open else 1) + (0 if courtesy else 1) + (0 if proper_close else 1)
+        if missed == 0:
+            p6_score = 100
+        elif missed == 1:
+            p6_score = 100 if warm_bonus else 70
+        else:
+            p6_score = 70 if warm_bonus else 0
+        if soft_cold:
+            p6_score = min(p6_score, 70)
+    pillars["p6"] = {"applies": True, "pass": p6_score >= 70, "score": p6_score}
 
     alltext = norm(" ".join(m["contenido"] for m in chat))
     # Response-time analysis (misma lógica afinada que el dashboard):
@@ -353,12 +398,17 @@ def score(num, msgs):
     return {"num": num, "agente": agente, "pillars": pillars, "flags": flags, "frm": frm,
             "max_wait_working": max_wait_working, "ts": ts, "es_venta": es_venta, "url": url}
 
+def pillar_val(p):
+    # Valor numérico (0..100) de un pilar: los binarios usan pass→100/0; los
+    # graduados (p. ej. P6) llevan un `score` (0/70/100).
+    return p["score"] if p.get("score") is not None else (100 if p["pass"] else 0)
+
 def pxi_of(convs):
     w = s = 0
     pill = {}
     for k in WEIGHTS:
         appl = [c for c in convs if c["pillars"][k]["applies"]]
-        pill[k] = round(sum(1 for c in appl if c["pillars"][k]["pass"]) / len(appl) * 100) if appl else None
+        pill[k] = round(sum(pillar_val(c["pillars"][k]) for c in appl) / len(appl)) if appl else None
         if pill[k] is not None:
             w += WEIGHTS[k]; s += WEIGHTS[k] * pill[k]
     return (round(s / w) if w else None), pill
@@ -370,7 +420,9 @@ PILLAR_TIP = {
     "p3": "Antes de dar un precio, explicar el valor: qué incluye, evaluación, especialista, acompañamiento.",
     "p4": "Evitar promesas clínicas o frases minimizadoras; usar lenguaje prudente ('los resultados varían…').",
     "p5": "Cuidar la redacción: mayúscula inicial, abrir con ¿, sin abreviaturas informales ni MAYÚSCULAS.",
-    "p6": "Saludar siempre y cerrar con cortesía/validación ('con gusto', 'quedo al pendiente').",
+    "p6": "Abrir con saludo/presentación (si abres el chat), usar frases cálidas y empáticas, "
+          "y cerrar con cortesía cuando das el último mensaje ('con gusto', 'quedo al pendiente'). "
+          "Evita frases secas ('espérame', 'estos son los precios').",
 }
 
 def coaching_focus(convs):
