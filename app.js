@@ -130,14 +130,26 @@ function parseHora(h) {
 }
 
 // ── File handling ──────────────────────────────────────────────────────────
+// Lee un ArrayBuffer como libro de SheetJS.
+// IMPORTANTE: para .csv hay que decodificar explícitamente como UTF-8. SheetJS
+// interpreta los bytes crudos como Windows-1252, lo que convierte los acentos y
+// emojis en basura ("estás" → "estÃ¡s") y rompe la detección de frases de todos
+// los pilares. Los .xlsx sí traen su propia codificación y se leen tal cual.
+function readWorkbook(buf, filename) {
+  if (/\.csv$/i.test(filename || '')) {
+    const text = new TextDecoder('utf-8').decode(buf);
+    return XLSX.read(text, { type: 'string', cellDates: false });
+  }
+  return XLSX.read(buf, { type: 'array', cellDates: false });
+}
+
 function handleFile(evt) {
   const file = evt.target.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
     try {
-      const wb = XLSX.read(e.target.result, { type: 'array', cellDates: false });
-      ingestWorkbook(wb, file.name);
+      ingestWorkbook(readWorkbook(e.target.result, file.name), file.name);
     } catch (err) { showToast('Error al leer el archivo: ' + err.message); }
   };
   reader.readAsArrayBuffer(file);
@@ -1062,8 +1074,7 @@ async function autoLoad(force) {
       const lm = res.headers.get('last-modified');
       dataLastModified = lm ? new Date(lm) : null;
       const buf = await res.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array', cellDates: false });
-      ingestWorkbook(wb, name);
+      ingestWorkbook(readWorkbook(buf, name), name);
       return true;
     } catch (_) {}
   }
