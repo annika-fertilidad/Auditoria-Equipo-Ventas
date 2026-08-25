@@ -8,7 +8,9 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <link rel="stylesheet" href="style.css" />
+  <!-- El sufijo ?v= obliga al navegador a bajar la versión nueva en lugar de
+       usar la que tiene en caché. Súbelo cada vez que cambie app.js o style.css. -->
+  <link rel="stylesheet" href="style.css?v=20260825" />
 </head>
 <body>
 
@@ -240,6 +242,6 @@
   </main>
 
   <div id="toast" class="toast"></div>
-  <script src="app.js"></script>
+  <script src="app.js?v=20260825"></script>
 </body>
 </html>
