@@ -549,9 +549,16 @@ function aggregate() {
   const inWeek = currentWeekStart != null
     ? dated.filter(c => c.weekStart === currentWeekStart) : dated;
   latestDayTs = inWeek.length ? Math.max(...inWeek.map(c => c.dayTs)) : null;
-  // El mes actual se elige igual: el mes más reciente con datos (los meses
-  // acumulan mucho más, así que basta con el más reciente).
-  currentMonthStart = dated.length ? Math.max(...dated.map(c => c.monthStart)) : null;
+  // El mes actual sigue el mismo criterio que la semana: el mes más reciente con
+  // volumen real. Al arrancar un mes (p. ej. el día 1) el mes en curso trae un
+  // puñado de chats y la tarjeta mostraría una calificación sin sustento — por
+  // eso se exige un mínimo y, si nadie lo alcanza, se usa el mes más reciente.
+  const MIN_CURRENT_MONTH = 30;
+  const monthCounts = {};
+  dated.forEach(c => { monthCounts[c.monthStart] = (monthCounts[c.monthStart] || 0) + 1; });
+  const monthStarts = Object.keys(monthCounts).map(Number).sort((a, b) => b - a);
+  currentMonthStart = monthStarts.find(m => monthCounts[m] >= MIN_CURRENT_MONTH)
+    ?? (monthStarts.length ? monthStarts[0] : null);
   weekConversations = currentWeekStart != null
     ? conversations.filter(c => c.weekStart === currentWeekStart)
     : conversations.slice();
